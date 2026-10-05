@@ -50,4 +50,33 @@ class AuthHttpTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_IMPLEMENTED);
     }
+
+    @Test
+    void protectedRoute_401BodyIsUtf8Json() {
+        ResponseEntity<String> response = restTemplate.getForEntity(url("/api/v1/users/anything"), String.class);
+
+        assertThat(response.getHeaders().getContentType()).isNotNull();
+        assertThat(response.getHeaders().getContentType().isCompatibleWith(MediaType.APPLICATION_JSON)).isTrue();
+        assertThat(response.getHeaders().getContentType().getCharset()).isEqualTo(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void unknownRoute_withBearerToken_keepsItsRealErrorStatus() {
+        // MVC errors are rendered through a second (ERROR) dispatch to /error.
+        // That dispatch must not be re-authorized as anonymous, or every
+        // 404/405/500 behind the gate gets masked as a 401.
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer not-a-real-token");
+        ResponseEntity<String> response = restTemplate.exchange(
+            url("/api/v1/does-not-exist"), HttpMethod.GET, new HttpEntity<>(headers), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void errorEndpoint_isNotDirectlyReachableWithoutToken() {
+        ResponseEntity<String> response = restTemplate.getForEntity(url("/error"), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
 }

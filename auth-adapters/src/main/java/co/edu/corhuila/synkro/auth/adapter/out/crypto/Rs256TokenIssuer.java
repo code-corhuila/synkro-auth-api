@@ -1,6 +1,7 @@
 package co.edu.corhuila.synkro.auth.adapter.out.crypto;
 
 import co.edu.corhuila.synkro.auth.application.port.out.TokenIssuer;
+import co.edu.corhuila.synkro.auth.domain.model.RolePermissions;
 import io.jsonwebtoken.Jwts;
 
 import java.security.PrivateKey;
@@ -30,6 +31,7 @@ public class Rs256TokenIssuer implements TokenIssuer {
         return Jwts.builder()
             .subject(subject)
             .claim("roles", List.of(role))
+            .claim("permissions", RolePermissions.forRole(role))
             .id(UUID.randomUUID().toString())
             .issuedAt(Date.from(now))
             .expiration(Date.from(now.plus(accessTokenTtl)))

@@ -5,8 +5,16 @@ services:
       dockerfile: deploy/Dockerfile
     environment:
       SERVER_PORT: "8080"
+      # The service fails fast at startup if this file is missing or not a valid RSA key.
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+    secrets: [jwt_private_key]
     expose: ["8080"]
     networks: [platform]
+
+# Point JWT_PRIVATE_KEY_PATH at the PEM on the host; it is mounted read-only, never baked into the image.
+secrets:
+  jwt_private_key:
+    file: ${JWT_PRIVATE_KEY_PATH:?set JWT_PRIVATE_KEY_PATH to the RS256 private key PEM}
 
 networks:
   platform:

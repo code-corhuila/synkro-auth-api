@@ -52,6 +52,16 @@ class Rs256TokenIssuerTest {
     }
 
     @Test
+    void tokenCarriesTheRolesPermissions_asRequiredByTheTokenContract() throws Exception {
+        KeyPair pair = generate(2048);
+        String token = new Rs256TokenIssuer(pair.getPrivate(), TTL).issueAccessToken("u", "INVENTORY");
+
+        Claims claims = Jwts.parser().verifyWith(pair.getPublic()).build().parseSignedClaims(token).getPayload();
+
+        assertThat(claims.get("permissions", List.class)).containsExactlyInAnyOrder("products:read", "products:write");
+    }
+
+    @Test
     void headerDeclaresRs256() throws Exception {
         KeyPair pair = generate(2048);
         String token = new Rs256TokenIssuer(pair.getPrivate(), TTL).issueAccessToken("u", "ADMIN");

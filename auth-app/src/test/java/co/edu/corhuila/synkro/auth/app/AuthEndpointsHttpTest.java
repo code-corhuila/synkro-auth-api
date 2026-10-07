@@ -95,7 +95,7 @@ class AuthEndpointsHttpTest {
         Claims claims = verified(pair.get("accessToken").asText());
         assertThat(UUID.fromString(claims.getSubject())).isNotNull();
         assertThat(claims.get("roles", List.class)).containsExactly("ADMIN");
-        assertThat((List<?>) claims.get("permissions", List.class)).contains("users:manage");
+        assertThat(claims.get("permissions", List.class)).contains("users:manage");
         assertThat(claims.getId()).isNotBlank();
         assertThat(claims.getExpiration().getTime() - claims.getIssuedAt().getTime()).isEqualTo(3_600_000L);
     }

@@ -1,8 +1,5 @@
 package co.edu.corhuila.synkro.auth.app;
 
-import co.edu.corhuila.synkro.auth.adapter.out.crypto.BcryptPasswordHasher;
-import co.edu.corhuila.synkro.auth.adapter.out.persistence.inmemory.InMemoryRefreshTokenStore;
-import co.edu.corhuila.synkro.auth.adapter.out.persistence.inmemory.InMemorySeededUserRepository;
 import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -18,13 +15,13 @@ class InMemoryAdaptersTestConfig {
 
     @Bean
     @Primary
-    UserRepository inMemoryUserRepository() {
-        return new InMemorySeededUserRepository(new BcryptPasswordHasher());
+    UserRepository fakeUserRepository() {
+        return new FakeUserRepository();
     }
 
     @Bean
     @Primary
-    RefreshTokenStore inMemoryRefreshTokenStore() {
-        return new InMemoryRefreshTokenStore();
+    RefreshTokenStore fakeRefreshTokenStore() {
+        return new FakeRefreshTokenStore();
     }
 }

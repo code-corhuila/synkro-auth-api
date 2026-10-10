@@ -4,6 +4,7 @@ COPY pom.xml .
 COPY auth-core/pom.xml auth-core/pom.xml
 COPY auth-adapters/pom.xml auth-adapters/pom.xml
 COPY auth-app/pom.xml auth-app/pom.xml
+COPY auth-coverage/pom.xml auth-coverage/pom.xml
 RUN mvn -B -q -pl auth-core,auth-adapters,auth-app dependency:go-offline || true
 COPY . .
 RUN mvn -B -q -pl auth-app -am package -DskipTests

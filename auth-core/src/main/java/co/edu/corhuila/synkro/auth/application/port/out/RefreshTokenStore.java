@@ -1,9 +1,11 @@
 package co.edu.corhuila.synkro.auth.application.port.out;
 
+import java.time.Instant;
 import java.util.Optional;
 
 public interface RefreshTokenStore {
-    void save(String tokenHash, String userId);
+    /** The token stops being consumable at expiresAt; the use case decides when that is. */
+    void save(String tokenHash, String userId, Instant expiresAt);
 
     /**
      * Returns the owning userId if the token was valid and unused, and atomically

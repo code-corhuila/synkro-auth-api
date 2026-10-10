@@ -7,6 +7,10 @@ import co.edu.corhuila.synkro.auth.application.port.out.TokenIssuer;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
 import co.edu.corhuila.synkro.auth.domain.model.SystemUser;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -19,6 +23,10 @@ final class Fakes {
     private Fakes() {}
 
     static final String PASSWORD = "correct-password";
+
+    static final Instant NOW = Instant.parse("2026-01-01T00:00:00Z");
+    static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
+    static final Duration REFRESH_TTL = Duration.ofDays(7);
 
     /** Fake "hash" is a prefix, so a test can tell a hash from the plaintext. */
     static final PasswordHasher PASSWORD_HASHER = (plaintext, hash) -> hash.equals("hashed:" + plaintext);
@@ -71,10 +79,12 @@ final class Fakes {
     /** Same one-time-use contract as the real port: consuming removes the entry. */
     static class FakeRefreshTokenStore implements RefreshTokenStore {
         final Map<String, String> hashToUser = new HashMap<>();
+        final Map<String, Instant> hashToExpiry = new HashMap<>();
 
         @Override
-        public void save(String tokenHash, String userId) {
+        public void save(String tokenHash, String userId, Instant expiresAt) {
             hashToUser.put(tokenHash, userId);
+            hashToExpiry.put(tokenHash, expiresAt);
         }
 
         @Override

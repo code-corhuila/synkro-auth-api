@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>co.edu.corhuila.synkro</groupId>
+    <artifactId>synkro-auth-api</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+  <artifactId>auth-coverage</artifactId>
+  <packaging>pom</packaging>
+
+  <!-- No code of its own. Last in the reactor, it gathers the classes and the execution data of
+       the other modules so the thresholds of testing-strategy.md (line coverage) are checked per
+       layer and globally across modules, which a check inside one module cannot do.
+
+         domain          co.edu.corhuila.synkro.auth.domain.*        >= 90 %  (auth-core)
+         application     co.edu.corhuila.synkro.auth.application.*   >= 80 %  (auth-core)
+         infrastructure  co.edu.corhuila.synkro.auth.adapter.*       >= 60 %  (auth-adapters)
+         global          everything above plus the composition root  >= 80 %
+
+       The domain, application and global rules are checked on every `mvn verify`. The
+       infrastructure rule is checked when TEST_DATABASE_URL is set (profile below): the JDBC
+       adapters are covered by integration tests, so without a database they cannot meet it. -->
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>gather-classes</id>
+            <phase>verify</phase>
+            <goals><goal>copy-resources</goal></goals>
+            <configuration>
+              <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+              <resources>
+                <resource><directory>${project.basedir}/../auth-core/target/classes</directory></resource>
+                <resource><directory>${project.basedir}/../auth-adapters/target/classes</directory></resource>
+                <resource><directory>${project.basedir}/../auth-app/target/classes</directory></resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>merge-execution-data</id>
+            <phase>verify</phase>
+            <goals><goal>merge</goal></goals>
+            <configuration>
+              <fileSets>
+                <fileSet>
+                  <directory>${project.basedir}/..</directory>
+                  <includes><include>auth-*/target/jacoco.exec</include></includes>
+                </fileSet>
+              </fileSets>
+              <destFile>${project.build.directory}/jacoco-merged.exec</destFile>
+            </configuration>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>verify</phase>
+            <goals><goal>report</goal></goals>
+            <configuration>
+              <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+            </configuration>
+          </execution>
+          <execution>
+            <id>check-domain-application-global</id>
+            <phase>verify</phase>
+            <goals><goal>check</goal></goals>
+            <configuration>
+              <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+              <rules>
+                <rule>
+                  <element>PACKAGE</element>
+                  <includes><include>co.edu.corhuila.synkro.auth.domain.*</include></includes>
+                  <limits><limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>0.90</minimum></limit></limits>
+                </rule>
+                <rule>
+                  <element>PACKAGE</element>
+                  <includes><include>co.edu.corhuila.synkro.auth.application.*</include></includes>
+                  <limits><limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>0.80</minimum></limit></limits>
+                </rule>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits><limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>0.80</minimum></limit></limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>integration-database</id>
+      <activation>
+        <property>
+          <name>env.TEST_DATABASE_URL</name>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>check-infrastructure</id>
+                <phase>verify</phase>
+                <goals><goal>check</goal></goals>
+                <configuration>
+                  <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+                  <rules>
+                    <rule>
+                      <element>PACKAGE</element>
+                      <includes><include>co.edu.corhuila.synkro.auth.adapter.*</include></includes>
+                      <limits><limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>0.60</minimum></limit></limits>
+                    </rule>
+                  </rules>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

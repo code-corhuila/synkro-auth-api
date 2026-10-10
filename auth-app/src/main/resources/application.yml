@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    # url, username and password (or password-file) come only from SPRING_DATASOURCE_* variables.
+    hikari:
+      # cross-cutting.md §8: 10 connections, 5 s to get one, 5 s per statement.
+      maximum-pool-size: 10
+      connection-timeout: 5000
+      connection-init-sql: SET statement_timeout = 5000
+      # The service starts and answers /health without the database; a request that needs it
+      # fails with a 500 and works again once the database is back.
+      initialization-fail-timeout: -1
+  sql:
+    init:
+      # No schema.sql or data.sql: migrations belong to synkro-auth-db and never run at startup.
+      mode: never

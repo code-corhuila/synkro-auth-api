@@ -5,9 +5,13 @@ import co.edu.corhuila.synkro.auth.application.usecase.Fakes.RecordingTokenIssue
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
+
+import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.CLOCK;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.HASH;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.PASSWORD;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.PASSWORD_HASHER;
+import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.REFRESH_TTL;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.user;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.users;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,7 +30,7 @@ class LoginUseCaseTest {
         store = new FakeRefreshTokenStore();
         login = new LoginUseCase(
             users(user("ana@synkro.test", true), user("off@synkro.test", false)),
-            PASSWORD_HASHER, issuer, store, HASH);
+            PASSWORD_HASHER, issuer, store, HASH, CLOCK, REFRESH_TTL);
     }
 
     @Test
@@ -44,6 +48,14 @@ class LoginUseCaseTest {
         assertThat(store.hashToUser).containsOnlyKeys(HASH.hash(result.refreshToken()));
         assertThat(store.hashToUser).doesNotContainKey(result.refreshToken());
         assertThat(store.hashToUser.get(HASH.hash(result.refreshToken()))).isEqualTo("u-1");
+    }
+
+    @Test
+    void successfulLogin_storesTheRefreshTokenWithAnExpirySevenDaysAhead() {
+        LoginResult result = login.execute("ana@synkro.test", PASSWORD);
+
+        assertThat(store.hashToExpiry.get(HASH.hash(result.refreshToken())))
+            .isEqualTo(Fakes.NOW.plus(Duration.ofDays(7)));
     }
 
     @Test

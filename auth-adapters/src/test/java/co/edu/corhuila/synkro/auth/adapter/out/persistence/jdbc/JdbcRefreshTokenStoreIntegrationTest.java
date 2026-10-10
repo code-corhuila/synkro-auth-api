@@ -1,5 +1,6 @@
 package co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc;
 
+import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore.Consumption;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -114,6 +115,51 @@ class JdbcRefreshTokenStoreIntegrationTest {
             .isInstanceOf(DataAccessException.class)
             .rootCause().hasMessageContaining("permission denied");
         assertThat(rowsWithToken(hash)).isEqualTo(1);
+    }
+
+    @Test
+    void consume_ofAUsableToken_isConsumedWithItsOwner_andBurnsTheRow() {
+        String hash = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+
+        assertThat(store.consume(hash)).isEqualTo(new Consumption.Consumed(userId));
+        assertThat(activeOf(hash)).isFalse();
+    }
+
+    @Test
+    void consume_ofATokenAlreadyConsumed_isAlreadyUsedWithItsOwner() {
+        String hash = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+        store.consume(hash);
+
+        assertThat(store.consume(hash)).isEqualTo(new Consumption.AlreadyUsed(userId));
+    }
+
+    @Test
+    void consume_ofAnInactiveTokenThatHasExpired_isUnknown() {
+        String hash = newHash();
+        insertRow(hash, Instant.now().minus(Duration.ofHours(1)), false);
+
+        assertThat(store.consume(hash)).isEqualTo(new Consumption.Unknown());
+    }
+
+    @Test
+    void consume_ofAnActiveTokenThatHasExpired_isUnknown_andStaysActive() {
+        String hash = newHash();
+        store.save(hash, userId, Instant.now().minus(Duration.ofHours(1)));
+
+        assertThat(store.consume(hash)).isEqualTo(new Consumption.Unknown());
+        assertThat(activeOf(hash)).isTrue();
+    }
+
+    @Test
+    void consume_ofAnUnknownHash_isUnknown() {
+        assertThat(store.consume(newHash())).isEqualTo(new Consumption.Unknown());
+    }
+
+    private void insertRow(String hash, Instant expiresAt, boolean active) {
+        jdbc.update("INSERT INTO auth_schema.refresh_token (user_id, token, expiration_date, active) VALUES (?, ?, ?, ?)",
+            UUID.fromString(userId), hash, java.sql.Timestamp.from(expiresAt), active);
     }
 
     private int rowsWithToken(String hash) {

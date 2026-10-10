@@ -42,4 +42,9 @@ public class JdbcRefreshTokenStore implements RefreshTokenStore {
         List<String> owners = jdbc.queryForList(CONSUME, String.class, tokenHash);
         return owners.stream().findFirst();
     }
+
+    @Override
+    public Consumption consume(String tokenHash) {
+        return new Consumption.Unknown();
+    }
 }

@@ -64,8 +64,8 @@ record DatasourceSettings(String url, String username, String password) {
         return value == null || value.isBlank();
     }
 
-    private static IllegalStateException invalid(String message) {
-        return new IllegalStateException(message);
+    private static DatasourceConfigurationException invalid(String message) {
+        return new DatasourceConfigurationException(message);
     }
 
     @Override

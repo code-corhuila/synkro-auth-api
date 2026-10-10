@@ -1,7 +1,10 @@
 package co.edu.corhuila.synkro.auth.app;
 
+import co.edu.corhuila.synkro.auth.application.usecase.BusinessRuleViolationException;
 import co.edu.corhuila.synkro.auth.application.usecase.ForbiddenException;
 import co.edu.corhuila.synkro.auth.application.usecase.InvalidCredentialsException;
+import co.edu.corhuila.synkro.auth.application.usecase.NotFoundException;
+import co.edu.corhuila.synkro.auth.application.usecase.ValidationException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +39,22 @@ public class ApiExceptionHandler {
         return envelope(HttpStatus.FORBIDDEN, "FORBIDDEN", e.getMessage(), null, request);
     }
 
+    @ExceptionHandler(ValidationException.class)
+    public ResponseEntity<Map<String, Object>> invalidInput(ValidationException e, HttpServletRequest request) {
+        return envelope(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", e.problems().get(0).message(), e.problems(), request);
+    }
+
+    @ExceptionHandler(BusinessRuleViolationException.class)
+    public ResponseEntity<Map<String, Object>> businessRule(BusinessRuleViolationException e, HttpServletRequest request) {
+        return envelope(HttpStatus.UNPROCESSABLE_ENTITY, "BUSINESS_RULE_VIOLATION", e.getMessage(),
+            List.of(new FieldProblem(e.field(), e.getMessage())), request);
+    }
+
+    @ExceptionHandler(NotFoundException.class)
+    public ResponseEntity<Map<String, Object>> notFound(NotFoundException e, HttpServletRequest request) {
+        return envelope(HttpStatus.NOT_FOUND, "NOT_FOUND", e.getMessage(), null, request);
+    }
+
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<Map<String, Object>> databaseFailure(DataAccessException e, HttpServletRequest request) {
         // The exception's message and causes carry the SQL text, the host and the user, so only
@@ -65,7 +84,7 @@ public class ApiExceptionHandler {
     }
 
     private static ResponseEntity<Map<String, Object>> envelope(HttpStatus status, String error, String message,
-                                                               List<FieldProblem> details, HttpServletRequest request) {
+                                                               List<?> details, HttpServletRequest request) {
         return ResponseEntity.status(status).contentType(ApiError.CONTENT_TYPE).body(ApiError.body(error, message, details, request));
     }
 }

@@ -24,10 +24,18 @@ final class PostgresTestDatabase {
         return new JdbcTemplate(dataSource);
     }
 
-    static String insertUser(JdbcTemplate jdbc, String role, boolean active) {
+    static String uniqueEmail() {
+        return "it-" + UUID.randomUUID() + "@synkro.test";
+    }
+
+    static String insertUser(JdbcTemplate jdbc, String name, String email, String passwordHash, String role, boolean active) {
         return jdbc.queryForObject(
             "INSERT INTO auth_schema.system_user (name, email, password_hash, role, active) "
                 + "VALUES (?, ?, ?, ?, ?) RETURNING user_id::text",
-            String.class, "Test User", "it-" + UUID.randomUUID() + "@synkro.test", "not-a-real-hash", role, active);
+            String.class, name, email, passwordHash, role, active);
+    }
+
+    static String insertUser(JdbcTemplate jdbc, String role, boolean active) {
+        return insertUser(jdbc, "Test User", uniqueEmail(), "not-a-real-hash", role, active);
     }
 }

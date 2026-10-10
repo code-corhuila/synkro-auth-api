@@ -35,4 +35,9 @@ class FakeRefreshTokenStore implements RefreshTokenStore {
         }
         return entry.active() ? new Consumption.Consumed(entry.userId()) : new Consumption.AlreadyUsed(entry.userId());
     }
+
+    @Override
+    public void revokeAllOf(String userId) {
+        byHash.replaceAll((hash, entry) -> entry.userId().equals(userId) ? entry.used() : entry);
+    }
 }

@@ -26,8 +26,12 @@ final class PostgresTestDatabase {
         return new JdbcTemplate(dataSource);
     }
 
+    static DataSourceTransactionManager transactionManager(JdbcTemplate jdbc) {
+        return new DataSourceTransactionManager(jdbc.getDataSource());
+    }
+
     static TransactionTemplate transactions(JdbcTemplate jdbc) {
-        return new TransactionTemplate(new DataSourceTransactionManager(jdbc.getDataSource()));
+        return new TransactionTemplate(transactionManager(jdbc));
     }
 
     static String uniqueEmail() {

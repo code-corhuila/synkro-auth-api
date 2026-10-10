@@ -23,6 +23,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionOperations;
 
 import java.security.PrivateKey;
@@ -68,8 +69,8 @@ public class AuthBeansConfig {
     }
 
     @Bean
-    public RefreshTokenStore refreshTokenStore(JdbcTemplate jdbc) {
-        return new JdbcRefreshTokenStore(jdbc);
+    public RefreshTokenStore refreshTokenStore(JdbcTemplate jdbc, PlatformTransactionManager transactionManager) {
+        return new JdbcRefreshTokenStore(jdbc, transactionManager);
     }
 
     @Bean

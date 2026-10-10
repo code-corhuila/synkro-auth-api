@@ -95,6 +95,7 @@ final class Fakes {
         final Map<String, Instant> hashToExpiry = new HashMap<>();
         final Map<String, String> usedHashToUser = new HashMap<>();
         final Map<String, Instant> usedHashToExpiry = new HashMap<>();
+        final List<String> revokedUsers = new ArrayList<>();
 
         @Override
         public void save(String tokenHash, String userId, Instant expiresAt) {
@@ -113,6 +114,19 @@ final class Fakes {
                 return new Consumption.AlreadyUsed(usedHashToUser.get(tokenHash));
             }
             return new Consumption.Unknown();
+        }
+
+        @Override
+        public void revokeAllOf(String userId) {
+            revokedUsers.add(userId);
+            hashToUser.entrySet().removeIf(entry -> {
+                if (!entry.getValue().equals(userId)) {
+                    return false;
+                }
+                usedHashToUser.put(entry.getKey(), userId);
+                usedHashToExpiry.put(entry.getKey(), hashToExpiry.remove(entry.getKey()));
+                return true;
+            });
         }
     }
 }

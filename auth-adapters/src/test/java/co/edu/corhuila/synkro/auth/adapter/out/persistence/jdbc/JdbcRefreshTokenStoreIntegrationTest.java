@@ -33,7 +33,7 @@ class JdbcRefreshTokenStoreIntegrationTest {
     @BeforeEach
     void setUp() {
         jdbc = PostgresTestDatabase.jdbcTemplate();
-        store = new JdbcRefreshTokenStore(jdbc);
+        store = new JdbcRefreshTokenStore(jdbc, PostgresTestDatabase.transactionManager(jdbc));
         userId = PostgresTestDatabase.insertUser(jdbc, "ADMIN", true);
     }
 
@@ -157,9 +157,84 @@ class JdbcRefreshTokenStoreIntegrationTest {
         assertThat(store.consume(newHash())).isEqualTo(new Consumption.Unknown());
     }
 
+    @Test
+    void revokeAllOf_deactivatesTheActiveTokensOfThatUserOnly_andDeletesNothing() {
+        String other = PostgresTestDatabase.insertUser(jdbc, "ADMIN", true);
+        String activeOne = newHash();
+        String activeTwo = newHash();
+        String alreadyUsed = newHash();
+        String othersToken = newHash();
+        store.save(activeOne, userId, IN_AN_HOUR);
+        store.save(activeTwo, userId, IN_AN_HOUR);
+        store.save(alreadyUsed, userId, IN_AN_HOUR);
+        store.consume(alreadyUsed);
+        store.save(othersToken, other, IN_AN_HOUR);
+        int rowsBefore = rowsOf(userId, other);
+
+        store.revokeAllOf(userId);
+
+        assertThat(activeOf(activeOne)).isFalse();
+        assertThat(activeOf(activeTwo)).isFalse();
+        assertThat(activeOf(alreadyUsed)).isFalse();
+        assertThat(activeOf(othersToken)).as("another user's token").isTrue();
+        assertThat(rowsOf(userId, other)).as("rows after, none deleted").isEqualTo(rowsBefore);
+    }
+
+    @Test
+    void revokeAllOf_isCommittedEvenWhenTheSurroundingTransactionRollsBack() {
+        String hash = newHash();
+        String writtenByTheOuterTransaction = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+
+        assertThatThrownBy(() -> PostgresTestDatabase.transactions(jdbc).executeWithoutResult(status -> {
+            store.save(writtenByTheOuterTransaction, userId, IN_AN_HOUR);
+            store.revokeAllOf(userId);
+            throw new IllegalStateException("the request fails after the revocation");
+        })).isInstanceOf(IllegalStateException.class);
+
+        assertThat(rowsWithToken(writtenByTheOuterTransaction)).as("the outer transaction did roll back").isZero();
+        assertThat(activeOf(hash)).as("the revocation survived it").isFalse();
+    }
+
+    @Test
+    void twoSimultaneousConsumes_giveOneConsumedAndOneAlreadyUsed_andRevokingTheOwnerLeavesNothingActive() throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            for (int round = 0; round < 30; round++) {
+                String hash = newHash();
+                store.save(hash, userId, IN_AN_HOUR);
+                CyclicBarrier start = new CyclicBarrier(2);
+
+                List<Future<Consumption>> results = new ArrayList<>();
+                for (int caller = 0; caller < 2; caller++) {
+                    results.add(pool.submit(() -> {
+                        start.await();
+                        return store.consume(hash);
+                    }));
+                }
+
+                assertThat(List.of(results.get(0).get(), results.get(1).get()))
+                    .as("outcomes in round %d", round)
+                    .containsExactlyInAnyOrder(new Consumption.Consumed(userId), new Consumption.AlreadyUsed(userId));
+
+                String winnersNewToken = newHash();
+                store.save(winnersNewToken, userId, IN_AN_HOUR);
+                store.revokeAllOf(userId);
+                assertThat(activeOf(winnersNewToken)).as("the winner's new token in round %d", round).isFalse();
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
     private void insertRow(String hash, Instant expiresAt, boolean active) {
         jdbc.update("INSERT INTO auth_schema.refresh_token (user_id, token, expiration_date, active) VALUES (?, ?, ?, ?)",
             UUID.fromString(userId), hash, java.sql.Timestamp.from(expiresAt), active);
+    }
+
+    private int rowsOf(String... userIds) {
+        return jdbc.queryForObject("SELECT count(*) FROM auth_schema.refresh_token WHERE user_id = ANY (?::uuid[])", Integer.class,
+            "{" + String.join(",", userIds) + "}");
     }
 
     private int rowsWithToken(String hash) {

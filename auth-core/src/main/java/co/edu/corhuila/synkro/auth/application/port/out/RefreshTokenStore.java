@@ -14,6 +14,9 @@ public interface RefreshTokenStore {
      */
     Consumption consume(String tokenHash);
 
+    /** Makes every refresh token of the user unusable, whether or not it is still active. Nothing is deleted. */
+    void revokeAllOf(String userId);
+
     sealed interface Consumption {
         record Consumed(String userId) implements Consumption {}
 

@@ -2,6 +2,7 @@ package co.edu.corhuila.synkro.auth.adapter.out.persistence.inmemory;
 
 import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -20,7 +21,7 @@ public class InMemoryRefreshTokenStore implements RefreshTokenStore {
     private final Map<String, String> userIdByTokenHash = new ConcurrentHashMap<>();
 
     @Override
-    public void save(String tokenHash, String userId) {
+    public void save(String tokenHash, String userId, Instant expiresAt) {
         userIdByTokenHash.put(tokenHash, userId);
     }
 

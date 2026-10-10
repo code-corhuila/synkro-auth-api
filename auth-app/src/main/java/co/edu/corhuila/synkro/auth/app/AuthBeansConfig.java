@@ -29,6 +29,11 @@ public class AuthBeansConfig {
 
     private static final Logger log = LoggerFactory.getLogger(AuthBeansConfig.class);
 
+    @Bean
+    public Clock clock() {
+        return Clock.systemUTC();
+    }
+
     // Declared as the concrete type: the seeded-user adapter needs hash(), which the
     // PasswordHasher port (verify-only) deliberately lacks. Use cases still see only the port.
     @Bean
@@ -51,8 +56,8 @@ public class AuthBeansConfig {
     // The public key is derived from the signing key (KeyLoader.publicKeyFor): this service
     // verifies exactly what it signs, with no second variable that could disagree.
     @Bean
-    public AccessTokenVerifier accessTokenVerifier(PrivateKey jwtPrivateKey) {
-        return new Rs256TokenVerifier(KeyLoader.publicKeyFor(jwtPrivateKey), Clock.systemUTC());
+    public AccessTokenVerifier accessTokenVerifier(PrivateKey jwtPrivateKey, Clock clock) {
+        return new Rs256TokenVerifier(KeyLoader.publicKeyFor(jwtPrivateKey), clock);
     }
 
     // ── TEMPORARY in-memory adapters ─────────────────────────────────
@@ -76,13 +81,15 @@ public class AuthBeansConfig {
 
     @Bean
     public LoginUseCase loginUseCase(UserRepository users, PasswordHasher hasher, TokenIssuer issuer,
-                                     RefreshTokenStore store, HashFunction hash) {
-        return new LoginUseCase(users, hasher, issuer, store, hash);
+                                     RefreshTokenStore store, HashFunction hash, Clock clock,
+                                     @Value("${synkro.auth.refresh-token-ttl:P7D}") Duration refreshTokenTtl) {
+        return new LoginUseCase(users, hasher, issuer, store, hash, clock, refreshTokenTtl);
     }
 
     @Bean
     public RefreshUseCase refreshUseCase(UserRepository users, TokenIssuer issuer,
-                                         RefreshTokenStore store, HashFunction hash) {
-        return new RefreshUseCase(users, issuer, store, hash);
+                                         RefreshTokenStore store, HashFunction hash, Clock clock,
+                                     @Value("${synkro.auth.refresh-token-ttl:P7D}") Duration refreshTokenTtl) {
+        return new RefreshUseCase(users, issuer, store, hash, clock, refreshTokenTtl);
     }
 }

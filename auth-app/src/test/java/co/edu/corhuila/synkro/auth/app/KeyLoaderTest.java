@@ -5,9 +5,12 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.interfaces.RSAPrivateCrtKey;
+import java.security.spec.RSAPrivateKeySpec;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -75,5 +78,25 @@ class KeyLoaderTest {
         assertThatThrownBy(() -> KeyLoader.loadPrivateKey(weak.toString()))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("2048");
+    }
+
+    @Test
+    void thePublicKeyIsDerivedFromThePrivateKey_soNoSecondVariableCanDisagreeWithIt() {
+        KeyPair pair = TestKeys.generate(2048);
+
+        PublicKey derived = KeyLoader.publicKeyFor(pair.getPrivate());
+
+        assertThat(derived).isEqualTo(pair.getPublic());
+    }
+
+    @Test
+    void aPrivateKeyWithoutCrtParameters_cannotYieldAPublicKey_andTheMessageNamesTheVariable() throws Exception {
+        RSAPrivateCrtKey crt = (RSAPrivateCrtKey) TestKeys.generate(2048).getPrivate();
+        PrivateKey plain = KeyFactory.getInstance("RSA")
+            .generatePrivate(new RSAPrivateKeySpec(crt.getModulus(), crt.getPrivateExponent()));
+
+        assertThatThrownBy(() -> KeyLoader.publicKeyFor(plain))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("JWT_PRIVATE_KEY_FILE");
     }
 }

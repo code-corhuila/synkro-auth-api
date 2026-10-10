@@ -112,7 +112,7 @@ class JdbcRefreshTokenStoreIntegrationTest {
 
         assertThatThrownBy(() -> jdbc.update("DELETE FROM auth_schema.refresh_token WHERE token = ?", hash))
             .isInstanceOf(DataAccessException.class)
-            .hasMessageContaining("permission denied");
+            .rootCause().hasMessageContaining("permission denied");
         assertThat(rowsWithToken(hash)).isEqualTo(1);
     }
 

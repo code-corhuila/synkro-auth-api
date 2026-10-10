@@ -9,6 +9,7 @@ public class BcryptPasswordHasher implements PasswordHasher {
 
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(COST);
 
+    @Override
     public String hash(String plaintext) {
         return encoder.encode(plaintext);
     }

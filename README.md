@@ -26,11 +26,15 @@ Full policy: `00-governance/branching-policy.md` in `synkro-docs`.
 
 ## Running locally
 
-The service signs tokens with an RS256 private key and **refuses to start** without one
-(`JWT_PRIVATE_KEY_FILE`, see [Development](#development)).
+The service signs tokens with an RS256 private key and reads its users and refresh tokens from
+PostgreSQL. It **refuses to start** without the key (`JWT_PRIVATE_KEY_FILE`) or without a usable
+datasource (`SPRING_DATASOURCE_*`); see [Development](#development) for both.
 
 ```bash
 export JWT_PRIVATE_KEY_FILE=/path/to/jwt-private.pem
+export SPRING_DATASOURCE_URL='jdbc:postgresql://localhost:5432/synkro?currentSchema=auth_schema'
+export SPRING_DATASOURCE_USERNAME=auth_app
+export SPRING_DATASOURCE_PASSWORD='<the auth_app password of your local database>'
 mvn install -DskipTests
 mvn -pl auth-app spring-boot:run
 ```
@@ -49,6 +53,20 @@ curl http://localhost:8080/health
 mvn test
 ```
 
+Unit and HTTP tests need no database. The `*IntegrationTest` classes run only when `TEST_DATABASE_URL`
+is set, against a database whose schema was built from `synkro-auth-db`; they connect as `auth_app`
+(`TEST_DATABASE_USER` overrides the user, `TEST_DATABASE_PASSWORD` is its password) and never delete
+a row, so they can be re-run on the same database.
+
+```bash
+TEST_DATABASE_URL='jdbc:postgresql://localhost:5432/synkro' TEST_DATABASE_PASSWORD='<auth_app password>' mvn -B verify
+```
+
+`mvn -B verify` also enforces the coverage thresholds of `11-quality/testing-strategy.md` with JaCoCo
+(module `auth-coverage`): domain ≥ 90 %, application ≥ 80 % and global ≥ 80 % of lines on every run, and
+infrastructure (the adapters) ≥ 60 % per package when `TEST_DATABASE_URL` is set. The report is written to
+`auth-coverage/target/site/jacoco/index.html`.
+
 ## Development
 
 ### Signing key
@@ -61,24 +79,49 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out jwt-private.pe
 openssl pkey -in jwt-private.pem -pubout -out jwt-public.pem   # what other services receive as JWT_PUBLIC_KEY
 ```
 
-### Temporary seeded users
+### Database
 
-> **Temporary.** `synkro-auth-db` has no `system_user` or `refresh_token` table yet, so login runs
-> against three in-memory users and an in-memory refresh-token store
-> (`auth-adapters/.../persistence/inmemory/`). A follow-up story replaces both with Postgres adapters.
-> Nothing can create or change a user, and a restart resets everything. These passwords are public:
-> never deploy this build anywhere real.
+Users live in `auth_schema.system_user` and refresh tokens in `auth_schema.refresh_token`. The schema belongs
+to [`synkro-auth-db`](https://github.com/code-corhuila/synkro-auth-db): **this service never runs migrations**
+(no Flyway, no `schema.sql`). Build the schema there first, on an instance where the `auth_app` login exists
+(`synkro-infra-postgres` creates it; `synkro-auth-db`'s README shows a throwaway stand-in for local work).
 
-| Email | Password | Role |
-|---|---|---|
-| `admin@synkro.test` | `admin-dev-password` | `ADMIN` |
-| `sales@synkro.test` | `sales-dev-password` | `SALESPERSON` |
-| `inventory@synkro.test` | `inventory-dev-password` | `INVENTORY` |
+| Variable | Meaning |
+|---|---|
+| `SPRING_DATASOURCE_URL` | JDBC URL, `jdbc:postgresql://…?currentSchema=auth_schema`. Required. |
+| `SPRING_DATASOURCE_USERNAME` | Must be `auth_app`. The service refuses to start as any other user (`auth_reader`, an administrator). |
+| `SPRING_DATASOURCE_PASSWORD` or `SPRING_DATASOURCE_PASSWORD_FILE` | Exactly one. The file form is the one `deploy/compose.yml` uses (a mounted secret, like the signing key). |
+| `SYNKRO_AUTH_REFRESH_TOKEN_TTL` | Optional, ISO-8601, default `P7D`. |
+
+A missing or unusable value stops the startup with a message that names the variable and never prints the
+password. The pool has 10 connections, a 5 s wait for one and a 5 s `statement_timeout`
+(`05-architecture/cross-cutting.md` §8). The service starts without reaching the database; a request that
+needs it while it is down answers `500 INTERNAL_ERROR` in the common error envelope, with no SQL, host or
+credential in the body or in the log.
+
+Rows are never deleted: `auth_app` has no `DELETE` privilege and no code path issues one. A refresh token is
+stored as a SHA-256 hash with an `expiration_date` seven days ahead; rotating it marks the row
+`active = false`. A user with `active = false` cannot log in, and gets the same `401` as a wrong password.
+
+### The first local user
+
+There is no register endpoint until HU-AUTH-09 and `synkro-auth-db` seeds no users, so a new local database has
+nobody to log in as. `scripts/create-local-user.sh` hashes a password with bcrypt on your machine and inserts the
+row as `auth_app`; nothing with a password or a hash is committed:
+
+```bash
+export PGHOST=localhost PGPORT=5432 PGDATABASE=synkro PGUSER=auth_app PGPASSWORD='<auth_app password>'
+scripts/create-local-user.sh ana@example.test "Ana" ADMIN    # prompts for the password
+```
+
+Against a database inside a container, point `PSQL` at it:
+`PSQL="docker exec -i -e PGPASSWORD synkro-db psql -U auth_app -d synkro" scripts/create-local-user.sh …`.
+The bcrypt hash comes from `htpasswd` (apache2-utils) or, if it is not installed, from the `httpd:2.4-alpine` image.
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"admin@synkro.test","password":"admin-dev-password"}'
+  -d '{"email":"ana@example.test","password":"<the password you typed>"}'
 # {"accessToken":"…","refreshToken":"…","tokenType":"Bearer","expiresIn":3600}
 
 curl -s -X POST http://localhost:8080/api/v1/auth/refresh \
@@ -86,6 +129,7 @@ curl -s -X POST http://localhost:8080/api/v1/auth/refresh \
 ```
 
 A refresh token works once: using it returns a new pair and invalidates the old token, so replaying it is a `401`.
+Emails are matched exactly as stored; normalization comes with the register story.
 
 ## Token validation
 

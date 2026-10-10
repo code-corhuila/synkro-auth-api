@@ -5,6 +5,7 @@ import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
 import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore;
 import co.edu.corhuila.synkro.auth.application.port.out.TokenIssuer;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
+import co.edu.corhuila.synkro.auth.domain.model.Emails;
 import co.edu.corhuila.synkro.auth.domain.model.SystemUser;
 
 import java.time.Clock;
@@ -32,7 +33,7 @@ public class LoginUseCase {
     }
 
     public LoginResult execute(String email, String password) {
-        SystemUser user = userRepository.findByEmail(email)
+        SystemUser user = userRepository.findByEmail(Emails.normalize(email))
             .filter(SystemUser::isActive)
             .orElseThrow(InvalidCredentialsException::new);
 

@@ -104,7 +104,8 @@ class AuthOverDatabaseHttpIntegrationTest {
         Double secondsLeft = jdbc.queryForObject(
             "SELECT extract(epoch FROM expiration_date - now())::float8 FROM auth_schema.refresh_token WHERE token = ?",
             Double.class, hash);
-        assertThat(secondsLeft).isBetween(7 * 86_400.0 - 120, 7 * 86_400.0);
+        // The expiry is computed by the service clock and read back against the database clock.
+        assertThat(secondsLeft).isBetween(7 * 86_400.0 - 120, 7 * 86_400.0 + 120);
     }
 
     @Test

@@ -100,11 +100,16 @@ jobs:
         # Success alone proves nothing (a wrong location migrates zero files), so count them.
         run: |
           set -euo pipefail
-          docker run --rm --network host \
-            -v "$PWD/synkro-auth-db:/workspace:ro" \
+          # The repository is copied in with `docker cp`, not bind-mounted, so this works
+          # whether or not the Docker daemon can see the job's filesystem (act, containers).
+          cid=$(docker create --network host \
             -e FLYWAY_URL=jdbc:postgresql://localhost:5432/postgres \
             -e FLYWAY_USER=postgres -e FLYWAY_PASSWORD=ci_admin_pw \
-            "$FLYWAY_IMAGE" -workingDirectory=/workspace -configFiles=flyway.toml migrate
+            "$FLYWAY_IMAGE" -workingDirectory=/workspace -configFiles=flyway.toml migrate)
+          trap 'docker rm -f "$cid" > /dev/null' EXIT
+          docker cp -q synkro-auth-db/. "$cid:/workspace"
+          docker start -a "$cid"
+          test "$(docker inspect -f '{{.State.ExitCode}}' "$cid")" = 0
           expected=$(find synkro-auth-db/01_ddl synkro-auth-db/02_dml synkro-auth-db/03_dcl synkro-auth-db/04_tcl -name 'V*.sql' | wc -l)
           applied=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d postgres -tAc \
             "SELECT count(*) FROM flyway_schema_history WHERE success AND version IS NOT NULL;")

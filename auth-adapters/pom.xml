@@ -46,6 +46,17 @@
       <groupId>org.springframework</groupId>
       <artifactId>spring-jcl</artifactId>
     </dependency>
+    <!-- JdbcTemplate only, no JPA (_stacks/java-spring.md). The driver is runtime-only: the
+         adapters compile against java.sql and spring-jdbc, never against pgjdbc itself. -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-jdbc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>

@@ -86,3 +86,31 @@ curl -s -X POST http://localhost:8080/api/v1/auth/refresh \
 ```
 
 A refresh token works once: using it returns a new pair and invalidates the old token, so replaying it is a `401`.
+
+## Token validation
+
+Every request except the public routes must carry `Authorization: Bearer <access token>`. The service
+validates the token itself, with the rules every service of the system applies
+(`07-api/authentication.md`):
+
+- Only `RS256` is accepted. `none`, `HS256`, `RS384` and every other algorithm are rejected, whatever the token header says.
+- The signature is checked with the public key of the key pair that signs the tokens. This service holds the
+  private key and **derives the public key from it at startup**, so there is no `JWT_PUBLIC_KEY` to configure
+  here and the two can never disagree. A key without its CRT parameters stops the service at startup.
+- `exp` and `sub` are required. A clock skew of up to 30 seconds is tolerated.
+- Identity, roles and permissions come only from the token's claims (`sub`, `roles`, `permissions`).
+  **`X-User-*` headers are ignored**: a request with `X-User-Role: ADMIN` and no token is a `401`, and with a
+  valid `INVENTORY` token it is still `INVENTORY`.
+
+A missing token, a fake or malformed Bearer, an expired token, a token signed with another key and an opaque
+refresh token are all `401 UNAUTHORIZED`. A valid token whose role does not allow the operation is
+`403 FORBIDDEN`; that decision is taken in the use case (`RoleGuard`), not in the controller. Both answer with
+the common error envelope `{ error, message, details?, traceId }`, where `traceId` is the request's
+`X-Correlation-Id` (generated when the client sends none) and the response echoes that header.
+
+**Public routes** (no token needed): `GET /health`, `POST /api/v1/auth/login` and `POST /api/v1/auth/refresh`.
+Everything else requires a valid token. An invalid `Authorization` header on a public route is ignored, so an
+expired access token never blocks `refresh`.
+
+The caller can carry the token-only role `SERVICE` (service tokens, later story); a use case that must refuse
+services calls `RoleGuard` without changes to the verifier.

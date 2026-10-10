@@ -1,5 +1,6 @@
 package co.edu.corhuila.synkro.auth.app;
 
+import co.edu.corhuila.synkro.auth.application.usecase.ForbiddenException;
 import co.edu.corhuila.synkro.auth.application.usecase.InvalidCredentialsException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
@@ -8,7 +9,6 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -25,6 +25,11 @@ public class ApiExceptionHandler {
         return envelope(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Invalid credentials", null, request);
     }
 
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<Map<String, Object>> forbidden(ForbiddenException e, HttpServletRequest request) {
+        return envelope(HttpStatus.FORBIDDEN, "FORBIDDEN", e.getMessage(), null, request);
+    }
+
     @ExceptionHandler(RequestValidationException.class)
     public ResponseEntity<Map<String, Object>> validation(RequestValidationException e, HttpServletRequest request) {
         return envelope(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", e.problems().get(0).message(), e.problems(), request);
@@ -37,13 +42,6 @@ public class ApiExceptionHandler {
 
     private static ResponseEntity<Map<String, Object>> envelope(HttpStatus status, String error, String message,
                                                                List<FieldProblem> details, HttpServletRequest request) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("error", error);
-        body.put("message", message);
-        if (details != null) {
-            body.put("details", details);
-        }
-        body.put("traceId", CorrelationIdFilter.idOf(request));
-        return ResponseEntity.status(status).body(body);
+        return ResponseEntity.status(status).contentType(ApiError.CONTENT_TYPE).body(ApiError.body(error, message, details, request));
     }
 }

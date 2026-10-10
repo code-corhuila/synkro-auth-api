@@ -5,9 +5,13 @@ import co.edu.corhuila.synkro.auth.application.usecase.Fakes.RecordingTokenIssue
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
+
+import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.CLOCK;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.HASH;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.PASSWORD;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.PASSWORD_HASHER;
+import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.REFRESH_TTL;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.user;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.users;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,8 +29,8 @@ class RefreshUseCaseTest {
         issuer = new RecordingTokenIssuer();
         store = new FakeRefreshTokenStore();
         var repo = users(user("ana@synkro.test", true));
-        login = new LoginUseCase(repo, PASSWORD_HASHER, issuer, store, HASH);
-        refresh = new RefreshUseCase(repo, issuer, store, HASH);
+        login = new LoginUseCase(repo, PASSWORD_HASHER, issuer, store, HASH, CLOCK, REFRESH_TTL);
+        refresh = new RefreshUseCase(repo, issuer, store, HASH, CLOCK, REFRESH_TTL);
     }
 
     @Test
@@ -59,6 +63,16 @@ class RefreshUseCaseTest {
     }
 
     @Test
+    void rotatedToken_isStoredWithAFreshSevenDayExpiry() {
+        LoginResult first = login.execute("ana@synkro.test", PASSWORD);
+
+        LoginResult second = refresh.execute(first.refreshToken());
+
+        assertThat(store.hashToExpiry.get(HASH.hash(second.refreshToken())))
+            .isEqualTo(Fakes.NOW.plus(Duration.ofDays(7)));
+    }
+
+    @Test
     void unknownToken_isRejected() {
         assertThatThrownBy(() -> refresh.execute("never-issued"))
             .isInstanceOf(InvalidCredentialsException.class);
@@ -66,8 +80,8 @@ class RefreshUseCaseTest {
 
     @Test
     void tokenOfADeactivatedUser_isRejected_andIssuesNothing() {
-        var refreshForInactive = new RefreshUseCase(users(user("ana@synkro.test", false)), issuer, store, HASH);
-        store.save(HASH.hash("raw"), "u-1");
+        var refreshForInactive = new RefreshUseCase(users(user("ana@synkro.test", false)), issuer, store, HASH, CLOCK, REFRESH_TTL);
+        store.save(HASH.hash("raw"), "u-1", Fakes.NOW.plusSeconds(60));
 
         assertThatThrownBy(() -> refreshForInactive.execute("raw"))
             .isInstanceOf(InvalidCredentialsException.class);

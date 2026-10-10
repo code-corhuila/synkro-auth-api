@@ -2,6 +2,10 @@ package co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc;
 
 import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -32,9 +36,13 @@ public class JdbcRefreshTokenStore implements RefreshTokenStore {
             + "WHERE token = ? AND active = false AND expiration_date > now()";
 
     private final JdbcTemplate jdbc;
+    private final TransactionOperations independentTransaction;
 
-    public JdbcRefreshTokenStore(JdbcTemplate jdbc) {
+    public JdbcRefreshTokenStore(JdbcTemplate jdbc, PlatformTransactionManager transactionManager) {
         this.jdbc = jdbc;
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.independentTransaction = template;
     }
 
     @Override
@@ -47,6 +55,10 @@ public class JdbcRefreshTokenStore implements RefreshTokenStore {
         return firstOwner(CONSUME, tokenHash).<Consumption>map(Consumption.Consumed::new)
             .or(() -> firstOwner(FIND_USED, tokenHash).map(Consumption.AlreadyUsed::new))
             .orElseGet(Consumption.Unknown::new);
+    }
+
+    @Override
+    public void revokeAllOf(String userId) {
     }
 
     private Optional<String> firstOwner(String sql, String tokenHash) {

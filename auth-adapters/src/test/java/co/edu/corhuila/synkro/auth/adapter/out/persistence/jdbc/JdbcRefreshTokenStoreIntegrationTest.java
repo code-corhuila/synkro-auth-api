@@ -11,7 +11,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
+
 import java.util.UUID;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -46,8 +46,8 @@ class JdbcRefreshTokenStoreIntegrationTest {
         String hash = newHash();
         store.save(hash, userId, IN_AN_HOUR);
 
-        assertThat(store.consumeAndRotate(hash)).contains(userId);
-        assertThat(store.consumeAndRotate(hash)).isEmpty();
+        assertThat(store.consume(hash)).isEqualTo(new Consumption.Consumed(userId));
+        assertThat(store.consume(hash)).isEqualTo(new Consumption.AlreadyUsed(userId));
     }
 
     @Test
@@ -55,13 +55,13 @@ class JdbcRefreshTokenStoreIntegrationTest {
         String hash = newHash();
         store.save(hash, userId, Instant.now().minus(Duration.ofHours(1)));
 
-        assertThat(store.consumeAndRotate(hash)).isEmpty();
+        assertThat(store.consume(hash)).isEqualTo(new Consumption.Unknown());
         assertThat(activeOf(hash)).isTrue();
     }
 
     @Test
-    void anUnknownHash_isEmpty() {
-        assertThat(store.consumeAndRotate(newHash())).isEmpty();
+    void anUnknownHash_isUnknown() {
+        assertThat(store.consume(newHash())).isEqualTo(new Consumption.Unknown());
     }
 
     @Test
@@ -73,17 +73,17 @@ class JdbcRefreshTokenStoreIntegrationTest {
                 store.save(hash, userId, IN_AN_HOUR);
                 CyclicBarrier start = new CyclicBarrier(2);
 
-                List<Future<Optional<String>>> results = new ArrayList<>();
+                List<Future<Consumption>> results = new ArrayList<>();
                 for (int caller = 0; caller < 2; caller++) {
                     results.add(pool.submit(() -> {
                         start.await();
-                        return store.consumeAndRotate(hash);
+                        return store.consume(hash);
                     }));
                 }
 
                 long winners = 0;
-                for (Future<Optional<String>> result : results) {
-                    winners += result.get().isPresent() ? 1 : 0;
+                for (Future<Consumption> result : results) {
+                    winners += result.get() instanceof Consumption.Consumed ? 1 : 0;
                 }
                 assertThat(winners).as("winners in round %d", round).isEqualTo(1);
             }
@@ -100,7 +100,7 @@ class JdbcRefreshTokenStoreIntegrationTest {
         assertThat(rowsWithToken(hash)).isEqualTo(1);
         assertThat(activeOf(hash)).isTrue();
 
-        store.consumeAndRotate(hash);
+        store.consume(hash);
 
         assertThat(rowsWithToken(hash)).isEqualTo(1);
         assertThat(activeOf(hash)).isFalse();

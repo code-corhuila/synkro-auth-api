@@ -4,7 +4,6 @@ import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore;
 
 import java.time.Instant;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** Test double honouring the port's contract: one use per token, nothing after its expiry, used tokens stay known. */
@@ -21,13 +20,6 @@ class FakeRefreshTokenStore implements RefreshTokenStore {
     @Override
     public void save(String tokenHash, String userId, Instant expiresAt) {
         byHash.put(tokenHash, new Entry(userId, expiresAt, true));
-    }
-
-    @Override
-    public Optional<String> consumeAndRotate(String tokenHash) {
-        return Optional.ofNullable(byHash.remove(tokenHash))
-            .filter(entry -> entry.expiresAt().isAfter(Instant.now()))
-            .map(Entry::userId);
     }
 
     @Override

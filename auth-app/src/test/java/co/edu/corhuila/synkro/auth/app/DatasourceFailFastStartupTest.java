@@ -115,7 +115,7 @@ class DatasourceFailFastStartupTest {
         Path file = Files.writeString(dir.resolve("password"), SECRET + "\n");
         List<String> args = baseArgs();
         args.addAll(List.of("--spring.datasource.url=" + URL, "--spring.datasource.username=auth_app",
-            "--spring.datasource.password-file=" + file));
+            "--spring.datasource.password=", "--spring.datasource.password-file=" + file));
 
         try (ConfigurableApplicationContext context = start(args)) {
             assertThat(context.isRunning()).isTrue();

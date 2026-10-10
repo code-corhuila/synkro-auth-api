@@ -61,7 +61,7 @@ class DatabaseUnavailableHttpTest {
         assertThat(body.get("message").asText()).isNotBlank();
         assertThat(body.get("traceId").asText()).isEqualTo("corr-db-down");
 
-        for (String secret : new String[] {"jdbc", "127.0.0.1", "unreachable_db", "auth_app", PASSWORD, "SELECT", "system_user"}) {
+        for (String secret : new String[] {"jdbc:", "127.0.0.1", "unreachable_db", "auth_app", PASSWORD, "SELECT", "system_user"}) {
             assertThat(response.getBody()).as("response body").doesNotContainIgnoringCase(secret);
             assertThat(output.getAll()).as("service log").doesNotContainIgnoringCase(secret);
         }

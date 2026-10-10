@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -34,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * rejected for what is wrong with it and not because the key differs.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(InMemoryAdaptersTestConfig.class)
 class TokenAuthenticationHttpTest {
 
     private static final KeyPair SERVICE_KEYS = TestKeys.generate(2048);

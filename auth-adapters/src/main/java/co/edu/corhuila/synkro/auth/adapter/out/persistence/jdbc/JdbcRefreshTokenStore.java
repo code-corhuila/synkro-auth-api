@@ -39,6 +39,12 @@ public class JdbcRefreshTokenStore implements RefreshTokenStore {
     private static final String REVOKE_ALL_OF_USER =
         "UPDATE auth_schema.refresh_token SET active = false WHERE user_id = ? AND active = true";
 
+    // The owner is part of the condition, so another user's token is simply not found. It is compared as text:
+    // a subject that is not a UUID matches nothing instead of failing. An expired token is left as it is.
+    private static final String REVOKE_OF_OWNER =
+        "UPDATE auth_schema.refresh_token SET active = false "
+            + "WHERE token = ? AND user_id::text = ? AND active = true AND expiration_date > now()";
+
     private final JdbcTemplate jdbc;
     private final TransactionOperations independentTransaction;
 
@@ -70,6 +76,7 @@ public class JdbcRefreshTokenStore implements RefreshTokenStore {
 
     @Override
     public void revoke(String tokenHash, String ownerId) {
+        jdbc.update(REVOKE_OF_OWNER, tokenHash, ownerId);
     }
 
     private Optional<String> firstOwner(String sql, String tokenHash) {

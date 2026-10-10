@@ -1,7 +1,9 @@
 package co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.UUID;
 
@@ -22,6 +24,10 @@ final class PostgresTestDatabase {
             System.getenv().getOrDefault("TEST_DATABASE_USER", "auth_app"),
             System.getenv("TEST_DATABASE_PASSWORD"));
         return new JdbcTemplate(dataSource);
+    }
+
+    static TransactionTemplate transactions(JdbcTemplate jdbc) {
+        return new TransactionTemplate(new DataSourceTransactionManager(jdbc.getDataSource()));
     }
 
     static String uniqueEmail() {

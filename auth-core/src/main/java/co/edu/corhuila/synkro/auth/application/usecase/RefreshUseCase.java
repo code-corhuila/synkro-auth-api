@@ -37,7 +37,11 @@ public class RefreshUseCase {
         // before any new token is issued.
         String userId = switch (refreshTokenStore.consume(hashFunction.hash(refreshToken))) {
             case Consumption.Consumed consumed -> consumed.userId();
-            case Consumption.AlreadyUsed used -> throw new InvalidCredentialsException();
+            case Consumption.AlreadyUsed used -> {
+                // A replay means the token was copied (or submitted twice): the safe answer ends every session of its owner.
+                refreshTokenStore.revokeAllOf(used.userId());
+                throw new InvalidCredentialsException();
+            }
             case Consumption.Unknown unknown -> throw new InvalidCredentialsException();
         };
 

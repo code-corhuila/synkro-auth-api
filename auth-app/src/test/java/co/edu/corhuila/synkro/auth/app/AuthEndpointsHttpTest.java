@@ -191,9 +191,9 @@ class AuthEndpointsHttpTest {
         assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(body(replay).get("error").asText()).isEqualTo("UNAUTHORIZED");
 
-        // The rotated token is still good: only the used one was burned.
+        // Reuse detection: replaying the used token also revokes the token the legitimate rotation issued.
         ResponseEntity<String> next = post("/api/v1/auth/refresh", Map.of("refreshToken", second.get("refreshToken").asText()));
-        assertThat(next.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(next.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
     @Test

@@ -5,20 +5,22 @@ import co.edu.corhuila.synkro.auth.domain.model.SystemUser;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
+import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Repository over auth_schema.system_user: read-only here, registration arrives with HU-AUTH-09. */
+/** Repository over auth_schema.system_user: it reads users; JdbcUserRegistrationStore writes them. */
 public class JdbcUserRepository implements UserRepository {
 
     private static final String SELECT_USER =
-        "SELECT user_id::text, name, email, password_hash, role, active FROM auth_schema.system_user ";
+        "SELECT user_id::text, name, email, password_hash, role, registration_date, active FROM auth_schema.system_user ";
     private static final String BY_EMAIL = SELECT_USER + "WHERE email = ?";
     private static final String BY_ID = SELECT_USER + "WHERE user_id = ?";
 
     private static final RowMapper<SystemUser> TO_USER = (rs, row) -> new SystemUser(
         rs.getString("user_id"), rs.getString("name"), rs.getString("email"),
-        rs.getString("password_hash"), rs.getString("role"), rs.getBoolean("active"));
+        rs.getString("password_hash"), rs.getString("role"),
+        rs.getObject("registration_date", OffsetDateTime.class).toInstant(), rs.getBoolean("active"));
 
     private final JdbcTemplate jdbc;
 

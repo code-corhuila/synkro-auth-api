@@ -14,14 +14,14 @@ public record AuthenticatedCaller(String subject, Set<String> roles, Set<String>
     }
 
     public boolean hasRole(String role) {
-        throw new UnsupportedOperationException("not implemented");
+        return roles.contains(role);
     }
 
     public boolean hasPermission(String permission) {
-        throw new UnsupportedOperationException("not implemented");
+        return permissions.contains(permission);
     }
 
     public boolean isService() {
-        throw new UnsupportedOperationException("not implemented");
+        return hasRole(Roles.SERVICE);
     }
 }

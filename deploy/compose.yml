@@ -7,14 +7,23 @@ services:
       SERVER_PORT: "8080"
       # The service fails fast at startup if this file is missing or not a valid RSA key.
       JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
-    secrets: [jwt_private_key]
+      # The database of the instance and the one login the service may use. The service refuses
+      # to start as any user other than auth_app, and never runs migrations (synkro-auth-db does).
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://synkro-db:5432/synkro?currentSchema=auth_schema}
+      SPRING_DATASOURCE_USERNAME: auth_app
+      # The password is read from the mounted secret, never from an environment variable.
+      SPRING_DATASOURCE_PASSWORD_FILE: /run/secrets/auth_app_password
+    secrets: [jwt_private_key, auth_app_password]
     expose: ["8080"]
     networks: [platform]
 
-# Point JWT_PRIVATE_KEY_PATH at the PEM on the host; it is mounted read-only, never baked into the image.
+# Point JWT_PRIVATE_KEY_PATH and AUTH_APP_PASSWORD_PATH at files on the host; they are mounted
+# read-only, never baked into the image.
 secrets:
   jwt_private_key:
     file: ${JWT_PRIVATE_KEY_PATH:?set JWT_PRIVATE_KEY_PATH to the RS256 private key PEM}
+  auth_app_password:
+    file: ${AUTH_APP_PASSWORD_PATH:?set AUTH_APP_PASSWORD_PATH to a file holding the auth_app password}
 
 networks:
   platform:

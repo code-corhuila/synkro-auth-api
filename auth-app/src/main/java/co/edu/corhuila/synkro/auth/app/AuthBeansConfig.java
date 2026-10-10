@@ -17,6 +17,7 @@ import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
 import co.edu.corhuila.synkro.auth.application.usecase.GetUserUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.LoginUseCase;
+import co.edu.corhuila.synkro.auth.application.usecase.LogoutUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.RefreshUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.RegisterUserUseCase;
 import org.springframework.beans.factory.annotation.Value;
@@ -102,6 +103,11 @@ public class AuthBeansConfig {
                                      RefreshTokenStore store, HashFunction hash, Clock clock,
                                      @Value("${synkro.auth.refresh-token-ttl:P7D}") Duration refreshTokenTtl) {
         return new LoginUseCase(users, hasher, issuer, store, hash, clock, refreshTokenTtl);
+    }
+
+    @Bean
+    public LogoutUseCase logoutUseCase(RefreshTokenStore store, HashFunction hash) {
+        return new LogoutUseCase(store, hash);
     }
 
     @Bean

@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.interfaces.RSAKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
@@ -51,5 +52,9 @@ public class KeyLoader {
             throw new IllegalStateException("JWT_PRIVATE_KEY_FILE must hold an RSA key of at least " + MIN_RSA_BITS + " bits");
         }
         return key;
+    }
+
+    public static PublicKey publicKeyFor(PrivateKey privateKey) {
+        throw new UnsupportedOperationException("not implemented");
     }
 }

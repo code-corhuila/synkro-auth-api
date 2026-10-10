@@ -103,11 +103,6 @@ final class Fakes {
         }
 
         @Override
-        public Optional<String> consumeAndRotate(String tokenHash) {
-            return Optional.ofNullable(hashToUser.remove(tokenHash));
-        }
-
-        @Override
         public Consumption consume(String tokenHash) {
             if (hashToUser.containsKey(tokenHash) && hashToExpiry.get(tokenHash).isAfter(NOW)) {
                 usedHashToUser.put(tokenHash, hashToUser.remove(tokenHash));

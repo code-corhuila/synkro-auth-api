@@ -4,6 +4,7 @@ import co.edu.corhuila.synkro.auth.adapter.out.crypto.BcryptPasswordHasher;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
 import co.edu.corhuila.synkro.auth.domain.model.SystemUser;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -14,17 +15,19 @@ import java.util.Optional;
  */
 class FakeUserRepository implements UserRepository {
 
+    private static final Instant REGISTERED = Instant.parse("2026-01-01T00:00:00Z");
+
     private final List<SystemUser> users;
 
     FakeUserRepository() {
         BcryptPasswordHasher hasher = new BcryptPasswordHasher();
         this.users = List.of(
             new SystemUser("00000000-0000-0000-0000-000000000001", "Test Admin", "admin@synkro.test",
-                hasher.hash("admin-dev-password"), "ADMIN", true),
+                hasher.hash("admin-dev-password"), "ADMIN", REGISTERED, true),
             new SystemUser("00000000-0000-0000-0000-000000000002", "Test Salesperson", "sales@synkro.test",
-                hasher.hash("sales-dev-password"), "SALESPERSON", true),
+                hasher.hash("sales-dev-password"), "SALESPERSON", REGISTERED, true),
             new SystemUser("00000000-0000-0000-0000-000000000003", "Test Inventory", "inventory@synkro.test",
-                hasher.hash("inventory-dev-password"), "INVENTORY", true));
+                hasher.hash("inventory-dev-password"), "INVENTORY", REGISTERED, true));
     }
 
     @Override

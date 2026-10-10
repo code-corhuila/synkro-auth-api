@@ -68,6 +68,10 @@ public class JdbcRefreshTokenStore implements RefreshTokenStore {
         independentTransaction.executeWithoutResult(status -> jdbc.update(REVOKE_ALL_OF_USER, UUID.fromString(userId)));
     }
 
+    @Override
+    public void revoke(String tokenHash, String ownerId) {
+    }
+
     private Optional<String> firstOwner(String sql, String tokenHash) {
         return jdbc.queryForList(sql, String.class, tokenHash).stream().findFirst();
     }

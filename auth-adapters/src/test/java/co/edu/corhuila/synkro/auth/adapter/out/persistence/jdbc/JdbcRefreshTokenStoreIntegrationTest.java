@@ -227,6 +227,60 @@ class JdbcRefreshTokenStoreIntegrationTest {
         }
     }
 
+    @Test
+    void revoke_deactivatesTheTokenOfItsOwner() {
+        String hash = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+
+        store.revoke(hash, userId);
+
+        assertThat(activeOf(hash)).isFalse();
+        assertThat(rowsWithToken(hash)).isEqualTo(1);
+    }
+
+    @Test
+    void revoke_doesNothingWhenTheOwnerDiffers() {
+        String other = PostgresTestDatabase.insertUser(jdbc, "ADMIN", true);
+        String hash = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+
+        store.revoke(hash, other);
+
+        assertThat(activeOf(hash)).isTrue();
+    }
+
+    @Test
+    void revoke_ofAnUnknownHash_doesNothing_andDoesNotFail() {
+        String hash = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+
+        store.revoke(newHash(), userId);
+
+        assertThat(activeOf(hash)).isTrue();
+    }
+
+    @Test
+    void revoke_ofAnExpiredActiveToken_changesNothing() {
+        String hash = newHash();
+        store.save(hash, userId, Instant.now().minus(Duration.ofHours(1)));
+
+        store.revoke(hash, userId);
+
+        assertThat(activeOf(hash)).isTrue();
+    }
+
+    @Test
+    void revoke_ofATokenAlreadyUsed_keepsItInactive_andDeletesNothing() {
+        String hash = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+        store.consume(hash);
+
+        store.revoke(hash, userId);
+
+        assertThat(activeOf(hash)).isFalse();
+        assertThat(rowsWithToken(hash)).isEqualTo(1);
+    }
+
     private void insertRow(String hash, Instant expiresAt, boolean active) {
         jdbc.update("INSERT INTO auth_schema.refresh_token (user_id, token, expiration_date, active) VALUES (?, ?, ?, ?)",
             UUID.fromString(userId), hash, java.sql.Timestamp.from(expiresAt), active);

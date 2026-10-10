@@ -40,4 +40,10 @@ class FakeRefreshTokenStore implements RefreshTokenStore {
     public void revokeAllOf(String userId) {
         byHash.replaceAll((hash, entry) -> entry.userId().equals(userId) ? entry.used() : entry);
     }
+
+    @Override
+    public void revoke(String tokenHash, String ownerId) {
+        byHash.computeIfPresent(tokenHash, (hash, entry) ->
+            entry.userId().equals(ownerId) && entry.active() && entry.expiresAt().isAfter(Instant.now()) ? entry.used() : entry);
+    }
 }

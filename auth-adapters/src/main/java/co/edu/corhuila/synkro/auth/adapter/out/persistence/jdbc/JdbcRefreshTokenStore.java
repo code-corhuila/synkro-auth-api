@@ -35,6 +35,10 @@ public class JdbcRefreshTokenStore implements RefreshTokenStore {
         "SELECT user_id::text FROM auth_schema.refresh_token "
             + "WHERE token = ? AND active = false AND expiration_date > now()";
 
+    // Only the active rows change, and only this user's: nothing is deleted (auth_app has no DELETE).
+    private static final String REVOKE_ALL_OF_USER =
+        "UPDATE auth_schema.refresh_token SET active = false WHERE user_id = ? AND active = true";
+
     private final JdbcTemplate jdbc;
     private final TransactionOperations independentTransaction;
 
@@ -57,8 +61,11 @@ public class JdbcRefreshTokenStore implements RefreshTokenStore {
             .orElseGet(Consumption.Unknown::new);
     }
 
+    // Its own transaction (REQUIRES_NEW): the request that detects a reuse answers 401, and whatever
+    // transaction that call runs in must not take the revocation down with it.
     @Override
     public void revokeAllOf(String userId) {
+        independentTransaction.executeWithoutResult(status -> jdbc.update(REVOKE_ALL_OF_USER, UUID.fromString(userId)));
     }
 
     private Optional<String> firstOwner(String sql, String tokenHash) {

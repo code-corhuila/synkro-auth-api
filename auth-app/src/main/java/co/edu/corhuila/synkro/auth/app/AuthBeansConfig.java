@@ -2,9 +2,11 @@ package co.edu.corhuila.synkro.auth.app;
 
 import co.edu.corhuila.synkro.auth.adapter.out.crypto.BcryptPasswordHasher;
 import co.edu.corhuila.synkro.auth.adapter.out.crypto.Rs256TokenIssuer;
+import co.edu.corhuila.synkro.auth.adapter.out.crypto.Rs256TokenVerifier;
 import co.edu.corhuila.synkro.auth.adapter.out.crypto.Sha256HashFunction;
 import co.edu.corhuila.synkro.auth.adapter.out.persistence.inmemory.InMemoryRefreshTokenStore;
 import co.edu.corhuila.synkro.auth.adapter.out.persistence.inmemory.InMemorySeededUserRepository;
+import co.edu.corhuila.synkro.auth.application.port.out.AccessTokenVerifier;
 import co.edu.corhuila.synkro.auth.application.port.out.HashFunction;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
 import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore;
@@ -19,6 +21,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.security.PrivateKey;
+import java.time.Clock;
 import java.time.Duration;
 
 @Configuration
@@ -43,6 +46,13 @@ public class AuthBeansConfig {
     public TokenIssuer tokenIssuer(PrivateKey jwtPrivateKey,
                                    @Value("${synkro.auth.access-token-ttl:PT1H}") Duration accessTokenTtl) {
         return new Rs256TokenIssuer(jwtPrivateKey, accessTokenTtl);
+    }
+
+    // The public key is derived from the signing key (KeyLoader.publicKeyFor): this service
+    // verifies exactly what it signs, with no second variable that could disagree.
+    @Bean
+    public AccessTokenVerifier accessTokenVerifier(PrivateKey jwtPrivateKey) {
+        return new Rs256TokenVerifier(KeyLoader.publicKeyFor(jwtPrivateKey), Clock.systemUTC());
     }
 
     // ── TEMPORARY in-memory adapters ─────────────────────────────────

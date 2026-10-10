@@ -8,7 +8,9 @@ import java.security.KeyFactory;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.interfaces.RSAKey;
+import java.security.interfaces.RSAPrivateCrtKey;
 import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.RSAPublicKeySpec;
 import java.util.Base64;
 
 /**
@@ -54,7 +56,21 @@ public class KeyLoader {
         return key;
     }
 
+    /**
+     * The public half is derived from the key the service signs with, so verification can never be
+     * configured against a different key than the one that signs. It needs the CRT form, which is
+     * what every PKCS#8 RSA key written by openssl or keytool has.
+     */
     public static PublicKey publicKeyFor(PrivateKey privateKey) {
-        throw new UnsupportedOperationException("not implemented");
+        if (!(privateKey instanceof RSAPrivateCrtKey crt)) {
+            throw new IllegalStateException("JWT_PRIVATE_KEY_FILE must hold an RSA key with its CRT parameters, "
+                + "so the public key can be derived from it");
+        }
+        try {
+            return KeyFactory.getInstance("RSA")
+                .generatePublic(new RSAPublicKeySpec(crt.getModulus(), crt.getPublicExponent()));
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("JWT_PRIVATE_KEY_FILE: the public key could not be derived", e);
+        }
     }
 }

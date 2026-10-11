@@ -485,7 +485,8 @@ class ServiceTokenHttpIntegrationTest {
         JsonNode created = body(issueAsAdmin(key, "synkro-workflow"));
         String token = created.get("token").asText();
         String[] parts = token.split("\\.");
-        List<String> secrets = List.of(token, parts[1], parts[2], parts[1].substring(10, 50), parts[2].substring(0, 40));
+        // The start of a payload is the same for every token of a service, so only the tail (which holds the jti) is a fragment unique to this token.
+        List<String> secrets = List.of(token, parts[1], parts[2], parts[1].substring(parts[1].length() - 60), parts[2].substring(0, 40));
         List<String> laterResponses = new ArrayList<>();
         laterResponses.add(issueAsAdmin(key, "synkro-workflow").getBody());
         laterResponses.add(issueAsAdmin(key, "synkro-worker").getBody());

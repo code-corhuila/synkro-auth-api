@@ -87,10 +87,20 @@ class RegisterAndLookupHttpIntegrationTest {
         return http.exchange("http://localhost:" + port + path, method, new HttpEntity<>(body, headers), String.class);
     }
 
+    // register is an ADMIN-only operation: every call carries the token of an administrator seeded in the database.
+    private static String registrarId;
+
+    private String registrarToken() {
+        if (registrarId == null) {
+            registrarId = DatabaseTestSupport.insertUser(jdbc, DatabaseTestSupport.uniqueEmail(), PASSWORD, "ADMIN", true);
+        }
+        return tokenFor(registrarId, "ADMIN");
+    }
+
     private ResponseEntity<String> register(Map<String, Object> body, String key) {
         return key == null
-            ? send(HttpMethod.POST, "/api/v1/auth/register", body, null)
-            : send(HttpMethod.POST, "/api/v1/auth/register", body, null, "Idempotency-Key", key);
+            ? send(HttpMethod.POST, "/api/v1/auth/register", body, registrarToken())
+            : send(HttpMethod.POST, "/api/v1/auth/register", body, registrarToken(), "Idempotency-Key", key);
     }
 
     private ResponseEntity<String> lookup(String id, String token) {
@@ -106,8 +116,12 @@ class RegisterAndLookupHttpIntegrationTest {
     }
 
     private static String tokenFor(String role) {
+        return tokenFor(UUID.randomUUID().toString(), role);
+    }
+
+    private static String tokenFor(String subject, String role) {
         return Jwts.builder()
-            .subject(UUID.randomUUID().toString())
+            .subject(subject)
             .claim("roles", List.of(role))
             .claim("permissions", List.of())
             .expiration(Date.from(Instant.now().plusSeconds(300)))
@@ -419,14 +433,15 @@ class RegisterAndLookupHttpIntegrationTest {
         assertThat(lookup("not-a-uuid", tokenFor("SALESPERSON")).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
-    // ── 17: which route is public ────────────────────────────────────
+    // ── 17: which routes are public ────────────────────────────────────
 
     @Test
-    void registerIsReachableWithNoToken_theLookupIsNot() throws Exception {
-        ResponseEntity<String> registered = register(request(DatabaseTestSupport.uniqueEmail(), "ADMIN"), newKey());
-        ResponseEntity<String> looked = lookup(body(registered).get("userId").asText(), null);
+    void registerAndTheLookupBothNeedAToken() throws Exception {
+        ResponseEntity<String> registered = send(HttpMethod.POST, "/api/v1/auth/register",
+            request(DatabaseTestSupport.uniqueEmail(), "ADMIN"), null, "Idempotency-Key", newKey());
+        ResponseEntity<String> looked = lookup(registeredId(DatabaseTestSupport.uniqueEmail(), "ADMIN"), null);
 
-        assertThat(registered.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(registered.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(looked.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 }

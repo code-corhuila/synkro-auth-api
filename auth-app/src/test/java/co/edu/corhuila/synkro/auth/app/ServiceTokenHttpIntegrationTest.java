@@ -85,10 +85,8 @@ class ServiceTokenHttpIntegrationTest {
             return;
         }
         String email = DatabaseTestSupport.uniqueEmail();
-        ResponseEntity<String> registered = send(HttpMethod.POST, "/api/v1/auth/register",
-            Map.of("name", "Ada Admin", "email", email, "password", PASSWORD, "role", "ADMIN"), null,
-            "Idempotency-Key", newKey());
-        adminId = body(registered).get("userId").asText();
+        // register is an ADMIN-only operation, so the first administrator is seeded in the database.
+        adminId = DatabaseTestSupport.insertUser(jdbc, email, PASSWORD, "ADMIN", true);
         ResponseEntity<String> login = send(HttpMethod.POST, "/api/v1/auth/login",
             Map.of("email", email, "password", PASSWORD), null);
         adminToken = body(login).get("accessToken").asText();

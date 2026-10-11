@@ -46,6 +46,7 @@ public class RegisterUserUseCase {
 
     private RegisterUserResult register(AuthenticatedCaller caller, String correlationId, RegisterUserCommand command) {
         requireHumanAdmin(caller);
+        requireExistingActor(caller);
         RegisterUserValidator.validate(command);
         String email = Emails.normalize(command.email());
 
@@ -93,6 +94,15 @@ public class RegisterUserUseCase {
             throw new ForbiddenException("A service is not authorized to register users");
         }
         RoleGuard.requireAnyRole(caller, "register users", Roles.ADMIN);
+    }
+
+    // The token proves who the administrator is, not that the account is still there. A well-formed token for an
+    // administrator that does not exist gets the same generic refusal as any other caller that may not register, before
+    // the key or the email is read. A lookup that fails is not an absent actor: its exception propagates as a failure.
+    private void requireExistingActor(AuthenticatedCaller caller) {
+        if (users.findById(caller.subject()).isEmpty()) {
+            throw new ForbiddenException("The caller is not authorized to register users");
+        }
     }
 
     // A key is only an answer to the request that created it: anything else must not be shown that user.

@@ -13,6 +13,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Turns a verified Bearer token into the authenticated caller. A missing or invalid token
@@ -35,6 +36,9 @@ class AccessTokenAuthenticationFilter extends OncePerRequestFilter {
         if (header != null && header.regionMatches(true, 0, BEARER, 0, BEARER.length())) {
             try {
                 AuthenticatedCaller caller = verifier.verify(header.substring(BEARER.length()).trim());
+                if (!hasValidSubject(caller)) {
+                    throw new InvalidTokenException();
+                }
                 SecurityContextHolder.getContext().setAuthentication(
                     UsernamePasswordAuthenticationToken.authenticated(caller, null, List.of()));
             } catch (InvalidTokenException e) {
@@ -42,5 +46,17 @@ class AccessTokenAuthenticationFilter extends OncePerRequestFilter {
             }
         }
         chain.doFilter(request, response);
+    }
+
+    // A human identity is identified by its user id, a UUID. A service is identified by its name, so it is not held to that.
+    private static boolean hasValidSubject(AuthenticatedCaller caller) {
+        if (caller.isService()) {
+            return true;
+        }
+        try {
+            return UUID.fromString(caller.subject()).toString().equalsIgnoreCase(caller.subject());
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 }

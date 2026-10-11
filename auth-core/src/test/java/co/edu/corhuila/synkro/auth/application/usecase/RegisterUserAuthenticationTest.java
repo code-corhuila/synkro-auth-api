@@ -23,8 +23,8 @@ class RegisterUserAuthenticationTest {
     }
 
     @Test
-    @Tag("AUTH-REG-01")
-    void case5_aCallWithNoVerifiedCaller_isRefusedByTheUseCase_andWritesNothing() {
+    @Tag("AUTH-REG-02")
+    void unauthenticated_aCallWithNoVerifiedCaller_isRefusedByTheUseCase_andWritesNothing() {
         RegisterUserCommand command = new RegisterUserCommand("key-0001-abcd", "Ana", "ana@synkro.test", "a-long-password", "SALESPERSON");
 
         assertThatThrownBy(() -> register.execute(null, CORRELATION_ID, command))

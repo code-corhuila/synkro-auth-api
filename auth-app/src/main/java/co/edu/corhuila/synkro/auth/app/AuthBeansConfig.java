@@ -1,10 +1,13 @@
 package co.edu.corhuila.synkro.auth.app;
 
 import co.edu.corhuila.synkro.auth.adapter.out.crypto.BcryptPasswordHasher;
+import co.edu.corhuila.synkro.auth.adapter.out.crypto.Rs256ServiceTokenSigner;
 import co.edu.corhuila.synkro.auth.adapter.out.crypto.Rs256TokenIssuer;
 import co.edu.corhuila.synkro.auth.adapter.out.crypto.Rs256TokenVerifier;
 import co.edu.corhuila.synkro.auth.adapter.out.crypto.Sha256HashFunction;
 import co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc.JdbcRefreshTokenStore;
+import co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc.JdbcServiceTokenRepository;
+import co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc.JdbcServiceTokenStore;
 import co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc.JdbcUserRegistrationStore;
 import co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc.JdbcUserRepository;
 import co.edu.corhuila.synkro.auth.application.port.out.AccessTokenVerifier;
@@ -12,10 +15,15 @@ import co.edu.corhuila.synkro.auth.application.port.out.HashFunction;
 import co.edu.corhuila.synkro.auth.application.port.out.IdGenerator;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
 import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore;
+import co.edu.corhuila.synkro.auth.application.port.out.ServiceTokenRepository;
+import co.edu.corhuila.synkro.auth.application.port.out.ServiceTokenSigner;
+import co.edu.corhuila.synkro.auth.application.port.out.ServiceTokenStore;
 import co.edu.corhuila.synkro.auth.application.port.out.TokenIssuer;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
+import co.edu.corhuila.synkro.auth.application.usecase.GetServiceTokenUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.GetUserUseCase;
+import co.edu.corhuila.synkro.auth.application.usecase.IssueServiceTokenUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.LoginUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.LogoutUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.RefreshUseCase;
@@ -85,7 +93,35 @@ public class AuthBeansConfig {
         return new JdbcUserRegistrationStore(jdbc, transactions);
     }
 
+    // Same key as the access tokens, a separate signer: issuing a service token is not a reason to
+    // change the class that Login and Refresh depend on.
+    @Bean
+    public ServiceTokenSigner serviceTokenSigner(PrivateKey jwtPrivateKey) {
+        return new Rs256ServiceTokenSigner(jwtPrivateKey);
+    }
+
+    @Bean
+    public ServiceTokenStore serviceTokenStore(JdbcTemplate jdbc, TransactionOperations transactions) {
+        return new JdbcServiceTokenStore(jdbc, transactions);
+    }
+
+    @Bean
+    public ServiceTokenRepository serviceTokenRepository(JdbcTemplate jdbc) {
+        return new JdbcServiceTokenRepository(jdbc);
+    }
+
     // ── Use cases ────────────────────────────────────────────────────
+
+    @Bean
+    public IssueServiceTokenUseCase issueServiceTokenUseCase(ServiceTokenStore tokens, ServiceTokenSigner signer,
+                                                             IdGenerator ids, Clock clock) {
+        return new IssueServiceTokenUseCase(tokens, signer, ids, clock);
+    }
+
+    @Bean
+    public GetServiceTokenUseCase getServiceTokenUseCase(ServiceTokenRepository tokens) {
+        return new GetServiceTokenUseCase(tokens);
+    }
 
     @Bean
     public RegisterUserUseCase registerUserUseCase(UserRepository users, UserRegistrationStore registrations,

@@ -6,6 +6,7 @@ import co.edu.corhuila.synkro.auth.application.usecase.RegisterUserResult;
 import co.edu.corhuila.synkro.auth.application.usecase.RegisterUserUseCase;
 import co.edu.corhuila.synkro.auth.domain.model.AuthenticatedCaller;
 import co.edu.corhuila.synkro.auth.domain.model.SystemUser;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -46,9 +47,11 @@ public class UserController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<UserResponse> register(@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+    public ResponseEntity<UserResponse> register(@AuthenticationPrincipal AuthenticatedCaller caller,
+                                                 HttpServletRequest http,
+                                                 @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
                                                  @RequestBody RegisterRequest request) {
-        RegisterUserResult result = registerUser.execute(new RegisterUserCommand(
+        RegisterUserResult result = registerUser.execute(caller, CorrelationIdFilter.idOf(http), new RegisterUserCommand(
             idempotencyKey, request.name(), request.email(), request.password(), request.role()));
         UserResponse body = UserResponse.of(result.user());
         return result.created()

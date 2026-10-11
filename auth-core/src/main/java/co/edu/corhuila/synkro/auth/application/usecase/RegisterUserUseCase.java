@@ -5,6 +5,7 @@ import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore.Registered;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
+import co.edu.corhuila.synkro.auth.domain.model.AuthenticatedCaller;
 import co.edu.corhuila.synkro.auth.domain.model.Emails;
 import co.edu.corhuila.synkro.auth.domain.model.SystemUser;
 
@@ -28,7 +29,7 @@ public class RegisterUserUseCase {
         this.clock = clock;
     }
 
-    public RegisterUserResult execute(RegisterUserCommand command) {
+    public RegisterUserResult execute(AuthenticatedCaller caller, String correlationId, RegisterUserCommand command) {
         RegisterUserValidator.validate(command);
         String email = Emails.normalize(command.email());
 

@@ -52,7 +52,7 @@ public class JdbcUserRegistrationStore implements UserRegistrationStore {
     }
 
     @Override
-    public Registered registerOnce(String idempotencyKey, SystemUser user) {
+    public Registered registerUserWithAttribution(String idempotencyKey, SystemUser user, CreationAttribution attribution) {
         return transactions.execute(status -> {
             if (jdbc.update(CLAIM_KEY, idempotencyKey, UUID.fromString(user.getUserId())) == 0) {
                 SystemUser original = findByIdempotencyKey(idempotencyKey).orElseThrow(() ->

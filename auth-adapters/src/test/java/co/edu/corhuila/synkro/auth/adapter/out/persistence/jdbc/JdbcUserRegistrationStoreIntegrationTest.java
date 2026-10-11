@@ -1,6 +1,7 @@
 package co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc;
 
 import co.edu.corhuila.synkro.auth.adapter.out.crypto.BcryptPasswordHasher;
+import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore.CreationAttribution;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore.Registered;
 import co.edu.corhuila.synkro.auth.application.usecase.BusinessRuleViolationException;
 import co.edu.corhuila.synkro.auth.domain.model.SystemUser;
@@ -31,11 +32,18 @@ class JdbcUserRegistrationStoreIntegrationTest {
     private final BcryptPasswordHasher hasher = new BcryptPasswordHasher();
     private JdbcTemplate jdbc;
     private JdbcUserRegistrationStore store;
+    private String actorId;
 
     @BeforeEach
     void setUp() {
         jdbc = PostgresTestDatabase.jdbcTemplate();
         store = new JdbcUserRegistrationStore(jdbc, PostgresTestDatabase.transactions(jdbc));
+        actorId = PostgresTestDatabase.insertUser(jdbc, "ADMIN", true);
+    }
+
+    private Registered registerOnce(String key, SystemUser user) {
+        return store.registerUserWithAttribution(key, user, new CreationAttribution(UUID.randomUUID().toString(), actorId,
+            Instant.now().truncatedTo(ChronoUnit.MICROS), "corr-" + UUID.randomUUID()));
     }
 
     private static String newKey() {
@@ -58,10 +66,10 @@ class JdbcUserRegistrationStoreIntegrationTest {
     // ── insert ───────────────────────────────────────────────────────
 
     @Test
-    void registerOnce_persistsEveryColumnOfTheUser_andTheBcryptHashRoundTrips() {
+    void registerUserWithAttribution_persistsEveryColumnOfTheUser_andTheBcryptHashRoundTrips() {
         SystemUser user = newUser(PostgresTestDatabase.uniqueEmail());
 
-        Registered saved = store.registerOnce(newKey(), user);
+        Registered saved = registerOnce(newKey(), user);
 
         assertThat(saved.created()).isTrue();
         Map<String, Object> row = jdbc.queryForMap(
@@ -81,7 +89,7 @@ class JdbcUserRegistrationStoreIntegrationTest {
     @Test
     void theUserReadBackThroughTheRepository_equalsWhatWasRegistered() {
         SystemUser user = newUser(PostgresTestDatabase.uniqueEmail());
-        store.registerOnce(newKey(), user);
+        registerOnce(newKey(), user);
 
         SystemUser read = new JdbcUserRepository(jdbc).findById(user.getUserId()).orElseThrow();
 
@@ -92,10 +100,10 @@ class JdbcUserRegistrationStoreIntegrationTest {
     @Test
     void aDuplicateEmailWithANewKey_isTheTypedBusinessRuleError_andLeavesNoKeyBehind() {
         String email = PostgresTestDatabase.uniqueEmail();
-        store.registerOnce(newKey(), newUser(email));
+        registerOnce(newKey(), newUser(email));
         String secondKey = newKey();
 
-        assertThatThrownBy(() -> store.registerOnce(secondKey, newUser(email)))
+        assertThatThrownBy(() -> registerOnce(secondKey, newUser(email)))
             .isInstanceOfSatisfying(BusinessRuleViolationException.class, e -> assertThat(e.field()).isEqualTo("email"));
 
         assertThat(usersWithEmail(email)).isEqualTo(1);
@@ -108,7 +116,7 @@ class JdbcUserRegistrationStoreIntegrationTest {
     void theKeyIsSavedAsTypeUserPointingAtTheUser_andCanBeFound() {
         String key = newKey();
         SystemUser user = newUser(PostgresTestDatabase.uniqueEmail());
-        store.registerOnce(key, user);
+        registerOnce(key, user);
 
         Map<String, Object> row = jdbc.queryForMap(
             "SELECT resource_type, resource_id::text AS resource_id FROM auth_schema.idempotency_key WHERE key = ?", key);
@@ -132,9 +140,9 @@ class JdbcUserRegistrationStoreIntegrationTest {
         String key = newKey();
         SystemUser first = newUser(PostgresTestDatabase.uniqueEmail());
         String otherEmail = PostgresTestDatabase.uniqueEmail();
-        store.registerOnce(key, first);
+        registerOnce(key, first);
 
-        Registered again = store.registerOnce(key, newUser(otherEmail));
+        Registered again = registerOnce(key, newUser(otherEmail));
 
         assertThat(again.created()).isFalse();
         assertThat(again.user().getUserId()).isEqualTo(first.getUserId());
@@ -151,7 +159,7 @@ class JdbcUserRegistrationStoreIntegrationTest {
         SystemUser tooLongName = new SystemUser(UUID.randomUUID().toString(), "n".repeat(151), email,
             hasher.hash("a-long-password"), "ADMIN", Instant.now().truncatedTo(ChronoUnit.MICROS), true);
 
-        assertThatThrownBy(() -> store.registerOnce(key, tooLongName)).isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> registerOnce(key, tooLongName)).isInstanceOf(DataIntegrityViolationException.class);
 
         assertThat(usersWithEmail(email)).isZero();
         assertThat(keysNamed(key)).isZero();
@@ -192,8 +200,8 @@ class JdbcUserRegistrationStoreIntegrationTest {
             String email = PostgresTestDatabase.uniqueEmail();
 
             List<Object> outcomes = runTogether(List.of(
-                () -> store.registerOnce(key, newUser(email)),
-                () -> store.registerOnce(key, newUser(email))));
+                () -> registerOnce(key, newUser(email)),
+                () -> registerOnce(key, newUser(email))));
 
             assertThat(outcomes).allSatisfy(o -> assertThat(o).isInstanceOf(Registered.class));
             List<Registered> results = outcomes.stream().map(Registered.class::cast).toList();
@@ -212,8 +220,8 @@ class JdbcUserRegistrationStoreIntegrationTest {
             String keyB = newKey();
 
             List<Object> outcomes = runTogether(List.of(
-                () -> store.registerOnce(keyA, newUser(email)),
-                () -> store.registerOnce(keyB, newUser(email))));
+                () -> registerOnce(keyA, newUser(email)),
+                () -> registerOnce(keyB, newUser(email))));
 
             assertThat(outcomes).filteredOn(o -> o instanceof Registered r && r.created()).hasSize(1);
             assertThat(outcomes).filteredOn(o -> o instanceof BusinessRuleViolationException).hasSize(1);

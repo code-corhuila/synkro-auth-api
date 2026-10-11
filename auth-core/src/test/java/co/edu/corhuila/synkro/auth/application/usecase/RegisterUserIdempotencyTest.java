@@ -3,6 +3,7 @@ package co.edu.corhuila.synkro.auth.application.usecase;
 import co.edu.corhuila.synkro.auth.application.port.out.IdGenerator;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore;
+import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore.CreationAttribution;
 import co.edu.corhuila.synkro.auth.domain.model.SystemUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -117,7 +118,7 @@ class RegisterUserIdempotencyTest {
             }
 
             @Override
-            public Registered registerOnce(String idempotencyKey, SystemUser user) {
+            public Registered registerUserWithAttribution(String idempotencyKey, SystemUser user, CreationAttribution attribution) {
                 return new Registered(winner, false);
             }
         };
@@ -140,7 +141,7 @@ class RegisterUserIdempotencyTest {
             }
 
             @Override
-            public Registered registerOnce(String idempotencyKey, SystemUser user) {
+            public Registered registerUserWithAttribution(String idempotencyKey, SystemUser user, CreationAttribution attribution) {
                 return new Registered(winner, false);
             }
         };

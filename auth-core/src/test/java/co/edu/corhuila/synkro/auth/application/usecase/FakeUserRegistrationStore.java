@@ -16,6 +16,8 @@ class FakeUserRegistrationStore implements UserRegistrationStore, UserRepository
 
     final Map<String, SystemUser> byKey = new LinkedHashMap<>();
     final Map<String, SystemUser> byEmail = new LinkedHashMap<>();
+    /** What was recorded for each created user, by user id. */
+    final Map<String, CreationAttribution> attributions = new LinkedHashMap<>();
     int registerCalls;
 
     @Override
@@ -24,7 +26,7 @@ class FakeUserRegistrationStore implements UserRegistrationStore, UserRepository
     }
 
     @Override
-    public Registered registerOnce(String idempotencyKey, SystemUser user) {
+    public Registered registerUserWithAttribution(String idempotencyKey, SystemUser user, CreationAttribution attribution) {
         registerCalls++;
         SystemUser original = byKey.get(idempotencyKey);
         if (original != null) {
@@ -35,6 +37,7 @@ class FakeUserRegistrationStore implements UserRegistrationStore, UserRepository
         }
         byKey.put(idempotencyKey, user);
         byEmail.put(user.getEmail(), user);
+        attributions.put(user.getUserId(), attribution);
         return new Registered(user, true);
     }
 

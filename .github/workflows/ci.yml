@@ -55,7 +55,8 @@ jobs:
     env:
       # Pinned to a commit so a push to synkro-auth-db cannot turn this repository's CI red
       # by surprise. Bump it, in a PR, when the service needs a newer schema.
-      AUTH_DB_REF: 827bd394e8c886675bb428e8d73f0a23331218a4
+      # c338bf95 is the merge of the user_creation_audit migrations (V014-V017), which registration writes to.
+      AUTH_DB_REF: c338bf95190fc20cbff55c13bb83c279a1febdf9
       # The tag synkro-auth-db's own CI and deploy/compose.yml run.
       FLYWAY_IMAGE: flyway/flyway:11.20.3-alpine
     services:
@@ -111,13 +112,35 @@ jobs:
           docker start -a "$cid"
           test "$(docker inspect -f '{{.State.ExitCode}}' "$cid")" = 0
           expected=$(find synkro-auth-db/01_ddl synkro-auth-db/02_dml synkro-auth-db/03_dcl synkro-auth-db/04_tcl -name 'V*.sql' | wc -l)
+          # Flyway keeps its history where its configuration says, not necessarily in public: find it.
+          history=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d postgres -tAc \
+            "SELECT quote_ident(n.nspname) || '.flyway_schema_history' FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = 'flyway_schema_history' AND c.relkind = 'r';")
+          if [ "$(printf '%s' "$history" | grep -c .)" != 1 ]; then
+            echo "::error::Expected exactly one flyway_schema_history table, found: ${history:-none}"
+            exit 1
+          fi
           applied=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d postgres -tAc \
-            "SELECT count(*) FROM flyway_schema_history WHERE success AND version IS NOT NULL;")
+            "SELECT count(*) FROM $history WHERE success AND version IS NOT NULL;")
           echo "V migrations in synkro-auth-db: $expected, applied: $applied"
           if [ "$expected" -eq 0 ] || [ "$applied" != "$expected" ]; then
             echo "Applied migrations do not match synkro-auth-db"
             exit 1
           fi
+
+      - name: The schema this service writes to exists
+        # The migration count above passes for any synkro-auth-db checkout whose files all applied, including one
+        # that predates the tables this service needs. Name them, so a stale AUTH_DB_REF fails here with a reason
+        # instead of as a wall of test errors.
+        run: |
+          set -euo pipefail
+          for table in system_user idempotency_key user_creation_audit; do
+            found=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d postgres -tAc \
+              "SELECT to_regclass('auth_schema.$table') IS NOT NULL;")
+            if [ "$found" != "t" ]; then
+              echo "::error::auth_schema.$table is missing: AUTH_DB_REF ($AUTH_DB_REF) points to a synkro-auth-db commit without the schema this service needs"
+              exit 1
+            fi
+          done
 
       - name: Build and test with the database
         env:

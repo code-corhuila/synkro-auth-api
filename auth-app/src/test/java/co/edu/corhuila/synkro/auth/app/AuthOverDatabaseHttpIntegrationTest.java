@@ -140,6 +140,6 @@ class AuthOverDatabaseHttpIntegrationTest {
         assertThat(second.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         Sha256HashFunction sha = new Sha256HashFunction();
         assertThat(activeOf(sha.hash(oldToken))).isFalse();
-        assertThat(activeOf(sha.hash(body(first).get("refreshToken").asText()))).isTrue();
+        assertThat(activeOf(sha.hash(body(first).get("refreshToken").asText()))).as("revoked by the reuse of the old token").isFalse();
     }
 }

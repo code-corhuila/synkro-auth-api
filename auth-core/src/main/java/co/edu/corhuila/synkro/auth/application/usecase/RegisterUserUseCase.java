@@ -2,6 +2,8 @@ package co.edu.corhuila.synkro.auth.application.usecase;
 
 import co.edu.corhuila.synkro.auth.application.port.out.IdGenerator;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
+import co.edu.corhuila.synkro.auth.application.port.out.RegistrationAttemptLog;
+import co.edu.corhuila.synkro.auth.application.port.out.RegistrationAttemptLog.Reason;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore.CreationAttribution;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore.Registered;
@@ -21,17 +23,28 @@ public class RegisterUserUseCase {
     private final PasswordHasher hasher;
     private final IdGenerator ids;
     private final Clock clock;
+    private final RegistrationAttemptLog attempts;
 
     public RegisterUserUseCase(UserRepository users, UserRegistrationStore registrations, PasswordHasher hasher,
-                               IdGenerator ids, Clock clock) {
+                               IdGenerator ids, Clock clock, RegistrationAttemptLog attempts) {
         this.users = users;
         this.registrations = registrations;
         this.hasher = hasher;
         this.ids = ids;
         this.clock = clock;
+        this.attempts = attempts;
     }
 
     public RegisterUserResult execute(AuthenticatedCaller caller, String correlationId, RegisterUserCommand command) {
+        try {
+            return register(caller, correlationId, command);
+        } catch (RuntimeException e) {
+            attempts.rejected(correlationId, caller == null ? null : caller.subject(), reasonOf(e));
+            throw e;
+        }
+    }
+
+    private RegisterUserResult register(AuthenticatedCaller caller, String correlationId, RegisterUserCommand command) {
         requireHumanAdmin(caller);
         RegisterUserValidator.validate(command);
         String email = Emails.normalize(command.email());
@@ -52,6 +65,22 @@ public class RegisterUserUseCase {
             clock.instant().truncatedTo(ChronoUnit.MICROS), correlationId);
         Registered saved = registrations.registerUserWithAttribution(command.idempotencyKey(), user, attribution);
         return saved.created() ? new RegisterUserResult(saved.user(), true) : replay(command, email, saved.user());
+    }
+
+    private static Reason reasonOf(RuntimeException failure) {
+        if (failure instanceof UnauthenticatedException) {
+            return Reason.UNAUTHENTICATED;
+        }
+        if (failure instanceof ForbiddenException) {
+            return Reason.FORBIDDEN;
+        }
+        if (failure instanceof ValidationException) {
+            return Reason.INVALID_REQUEST;
+        }
+        if (failure instanceof BusinessRuleViolationException) {
+            return Reason.BUSINESS_RULE;
+        }
+        return Reason.FAILED;
     }
 
     // Authorization comes before anything else, the idempotency lookup included: a caller that may not register

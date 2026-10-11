@@ -48,7 +48,7 @@ class RegisterUserOrderTest {
     void setUp() {
         store = new SpyStore();
         AtomicInteger sequence = new AtomicInteger();
-        register = new RegisterUserUseCase(store, store, PASSWORD_HASHER, () -> "user-" + sequence.incrementAndGet(), CLOCK);
+        register = new RegisterUserUseCase(store, store, PASSWORD_HASHER, () -> "user-" + sequence.incrementAndGet(), CLOCK, Fakes.IGNORED_ATTEMPTS);
     }
 
     private static RegisterUserCommand command() {

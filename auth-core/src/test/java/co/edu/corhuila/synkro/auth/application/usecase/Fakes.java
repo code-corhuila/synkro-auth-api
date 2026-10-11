@@ -3,6 +3,7 @@ package co.edu.corhuila.synkro.auth.application.usecase;
 import co.edu.corhuila.synkro.auth.application.port.out.HashFunction;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
 import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore;
+import co.edu.corhuila.synkro.auth.application.port.out.RegistrationAttemptLog;
 import co.edu.corhuila.synkro.auth.application.port.out.TokenIssuer;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
 import co.edu.corhuila.synkro.auth.domain.model.AuthenticatedCaller;
@@ -48,6 +49,9 @@ final class Fakes {
             return hash.equals("hashed:" + plaintext);
         }
     };
+
+    /** For tests that are not about the security log. */
+    static final RegistrationAttemptLog IGNORED_ATTEMPTS = (correlationId, callerId, reason) -> {};
 
     /** Prefixing keeps the stored value distinguishable from the raw token. */
     static final HashFunction HASH = value -> "sha:" + value;

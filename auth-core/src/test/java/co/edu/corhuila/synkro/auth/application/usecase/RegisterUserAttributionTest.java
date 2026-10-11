@@ -23,7 +23,7 @@ class RegisterUserAttributionTest {
     void setUp() {
         store = new FakeUserRegistrationStore();
         AtomicInteger sequence = new AtomicInteger();
-        register = new RegisterUserUseCase(store, store, PASSWORD_HASHER, () -> "id-" + sequence.incrementAndGet(), CLOCK);
+        register = new RegisterUserUseCase(store, store, PASSWORD_HASHER, () -> "id-" + sequence.incrementAndGet(), CLOCK, Fakes.IGNORED_ATTEMPTS);
     }
 
     private static RegisterUserCommand command() {

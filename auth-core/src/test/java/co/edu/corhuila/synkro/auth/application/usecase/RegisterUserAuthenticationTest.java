@@ -19,7 +19,7 @@ class RegisterUserAuthenticationTest {
     @BeforeEach
     void setUp() {
         store = new FakeUserRegistrationStore();
-        register = new RegisterUserUseCase(store, store, PASSWORD_HASHER, () -> "user-1", CLOCK);
+        register = new RegisterUserUseCase(store, store, PASSWORD_HASHER, () -> "user-1", CLOCK, Fakes.IGNORED_ATTEMPTS);
     }
 
     @Test

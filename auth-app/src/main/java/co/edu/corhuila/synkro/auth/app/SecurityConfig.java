@@ -29,10 +29,9 @@ public class SecurityConfig {
                 // Only the ERROR dispatch is permitted; a direct request to /error is not.
                 .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                 .requestMatchers("/health").permitAll()
-                // Public by design (ADR-001 §8): the caller has no access token yet, by definition.
-                // register is public too: the academic MVP accepts any role without a prior login
-                // (07-api/authentication.md, "Note on register being public"). The lookup is not.
-                .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/register").permitAll()
+                // Public by design: login and refresh are how a caller gets an access token, so they cannot require one.
+                // register is not public: an unauthenticated caller must not be able to create or discover accounts.
+                .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
                 .anyRequest().authenticated()
             )
             // Not a bean: a Filter bean would also be registered in the servlet container, outside this chain.

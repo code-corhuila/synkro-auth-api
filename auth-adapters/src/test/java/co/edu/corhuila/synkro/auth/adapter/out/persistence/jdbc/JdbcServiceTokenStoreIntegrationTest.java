@@ -240,9 +240,9 @@ class JdbcServiceTokenStoreIntegrationTest {
         OffsetDateTime now = OffsetDateTime.now();
 
         assertThatThrownBy(() -> jdbc.update(insert, UUID.randomUUID().toString(), "synkro-sales", adminId, now, now.plusDays(30)))
-            .isInstanceOf(DataIntegrityViolationException.class).hasMessageContaining("chk_service_token_service");
+            .isInstanceOf(DataIntegrityViolationException.class).rootCause().hasMessageContaining("chk_service_token_service");
         assertThatThrownBy(() -> jdbc.update(insert, UUID.randomUUID().toString(), "synkro-worker", adminId, now, now))
-            .isInstanceOf(DataIntegrityViolationException.class).hasMessageContaining("chk_service_token_expiry");
+            .isInstanceOf(DataIntegrityViolationException.class).rootCause().hasMessageContaining("chk_service_token_expiry");
     }
 
     @Test
@@ -252,9 +252,9 @@ class JdbcServiceTokenStoreIntegrationTest {
         store.issueOnce(key, token);
 
         assertThatThrownBy(() -> jdbc.update("DELETE FROM auth_schema.service_token WHERE token_id = ?::uuid", token.tokenId()))
-            .isInstanceOf(DataAccessException.class).hasMessageContaining("permission denied");
+            .isInstanceOf(DataAccessException.class).rootCause().hasMessageContaining("permission denied");
         assertThatThrownBy(() -> jdbc.update("DELETE FROM auth_schema.idempotency_key WHERE key = ?", key))
-            .isInstanceOf(DataAccessException.class).hasMessageContaining("permission denied");
+            .isInstanceOf(DataAccessException.class).rootCause().hasMessageContaining("permission denied");
         assertThat(tokensWithId(token.tokenId())).isEqualTo(1);
     }
 }

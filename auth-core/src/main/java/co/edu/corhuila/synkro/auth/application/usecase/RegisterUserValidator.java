@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
 
 /** The limits of RegisterRequest in synkro-auth-api.yaml and of the system_user checks, in one place. */
 final class RegisterUserValidator {
-    static final String IDEMPOTENCY_KEY = "Idempotency-Key";
+    static final String IDEMPOTENCY_KEY = IdempotencyKeyRule.FIELD;
 
     private static final Pattern EMAIL = Pattern.compile("[^@\\s]+@[^@\\s]+\\.[^@\\s]+");
     // bcrypt reads at most 72 bytes; longer input would be silently truncated or refused by the library.
@@ -21,21 +21,13 @@ final class RegisterUserValidator {
 
     static void validate(RegisterUserCommand command) {
         List<Problem> problems = new ArrayList<>();
-        checkKey(problems, command.idempotencyKey());
+        IdempotencyKeyRule.check(problems, command.idempotencyKey());
         checkName(problems, command.name());
         checkEmail(problems, command.email());
         checkPassword(problems, command.password());
         checkRole(problems, command.role());
         if (!problems.isEmpty()) {
             throw new ValidationException(problems);
-        }
-    }
-
-    private static void checkKey(List<Problem> problems, String key) {
-        if (key == null) {
-            problems.add(new Problem(IDEMPOTENCY_KEY, "The header Idempotency-Key is required"));
-        } else if (key.length() < 8 || key.length() > 128) {
-            problems.add(new Problem(IDEMPOTENCY_KEY, "The header Idempotency-Key must have 8 to 128 characters"));
         }
     }
 

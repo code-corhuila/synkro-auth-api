@@ -30,7 +30,7 @@ class RegisterUserUseCaseTest {
         store = new FakeUserRegistrationStore();
         AtomicInteger sequence = new AtomicInteger();
         IdGenerator ids = () -> "user-" + sequence.incrementAndGet();
-        register = new RegisterUserUseCase(store, store, PASSWORD_HASHER, ids, CLOCK);
+        register = new RegisterUserUseCase(store, store, PASSWORD_HASHER, ids, CLOCK, Fakes.IGNORED_ATTEMPTS);
     }
 
     private static RegisterUserCommand command(String key, String name, String email, String password, String role) {

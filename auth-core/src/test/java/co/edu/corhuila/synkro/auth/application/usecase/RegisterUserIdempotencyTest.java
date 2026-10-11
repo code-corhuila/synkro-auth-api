@@ -45,7 +45,7 @@ class RegisterUserIdempotencyTest {
         };
         AtomicInteger sequence = new AtomicInteger();
         IdGenerator ids = () -> "user-" + sequence.incrementAndGet();
-        register = new RegisterUserUseCase(store, store, counting, ids, CLOCK);
+        register = new RegisterUserUseCase(store, store, counting, ids, CLOCK, Fakes.IGNORED_ATTEMPTS);
     }
 
     private static RegisterUserCommand command(String key, String name, String email, String password, String role) {
@@ -122,7 +122,7 @@ class RegisterUserIdempotencyTest {
                 return new Registered(winner, false);
             }
         };
-        RegisterUserUseCase loser = new RegisterUserUseCase(store, racing, PASSWORD_HASHER, () -> "loser-id", CLOCK);
+        RegisterUserUseCase loser = new RegisterUserUseCase(store, racing, PASSWORD_HASHER, () -> "loser-id", CLOCK, Fakes.IGNORED_ATTEMPTS);
 
         RegisterUserResult result = loser.execute(ADMIN_CALLER, CORRELATION_ID, original());
 
@@ -145,7 +145,7 @@ class RegisterUserIdempotencyTest {
                 return new Registered(winner, false);
             }
         };
-        RegisterUserUseCase loser = new RegisterUserUseCase(store, racing, PASSWORD_HASHER, () -> "loser-id", CLOCK);
+        RegisterUserUseCase loser = new RegisterUserUseCase(store, racing, PASSWORD_HASHER, () -> "loser-id", CLOCK, Fakes.IGNORED_ATTEMPTS);
 
         assertThatThrownBy(() -> loser.execute(ADMIN_CALLER, CORRELATION_ID, original())).isInstanceOf(BusinessRuleViolationException.class);
     }

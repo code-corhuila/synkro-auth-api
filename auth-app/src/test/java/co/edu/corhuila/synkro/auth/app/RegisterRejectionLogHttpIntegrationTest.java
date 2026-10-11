@@ -172,7 +172,7 @@ class RegisterRejectionLogHttpIntegrationTest {
         // the only identifiers a rejection may carry are the callers own: no user was created, so none is invented
         java.util.regex.Pattern uuid = java.util.regex.Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
         for (String correlationId : statuses.keySet()) {
-            java.util.regex.Matcher found = uuid.matcher(securityEventsOf(correlationId).get(0).getFormattedMessage());
+            java.util.regex.Matcher found = uuid.matcher(securityEventsOf(correlationId).get(0).getFormattedMessage().replace(correlationId, ""));
             while (found.find()) {
                 assertThat(found.group()).isIn(adminId, ghostAdminId, salespersonId);
             }

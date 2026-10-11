@@ -30,6 +30,9 @@ public class RegisterUserUseCase {
     }
 
     public RegisterUserResult execute(AuthenticatedCaller caller, String correlationId, RegisterUserCommand command) {
+        if (caller == null) {
+            throw new UnauthenticatedException();
+        }
         RegisterUserValidator.validate(command);
         String email = Emails.normalize(command.email());
 

@@ -31,7 +31,7 @@ final class RegisterUserValidator {
         }
     }
 
-    private static void checkName(List<Problem> problems, String name) {
+    static void checkName(List<Problem> problems, String name) {
         if (name == null || name.isBlank()) {
             problems.add(new Problem("name", "The field name is required"));
         } else if (name.length() > 150) {
@@ -39,7 +39,7 @@ final class RegisterUserValidator {
         }
     }
 
-    private static void checkEmail(List<Problem> problems, String email) {
+    static void checkEmail(List<Problem> problems, String email) {
         String normalized = Emails.normalize(email);
         if (normalized == null || normalized.isEmpty()) {
             problems.add(new Problem("email", "The field email is required"));
@@ -50,7 +50,7 @@ final class RegisterUserValidator {
         }
     }
 
-    private static void checkPassword(List<Problem> problems, String password) {
+    static void checkPassword(List<Problem> problems, String password) {
         if (password == null || password.isEmpty()) {
             problems.add(new Problem("password", "The field password is required"));
         } else if (password.length() < 8) {

@@ -17,6 +17,10 @@ import java.util.UUID;
  * The user, its key and its audit row are written in one transaction on one connection, started here so the use
  * case stays free of Spring. Rows are never deleted: the service user has no DELETE, and a failed registration
  * is undone by the rollback.
+ *
+ * Pattern: a transactional repository method. The adapter owns the transaction boundary and runs the three writes
+ * inside it, because the use case must orchestrate without ever holding a transaction type, and one method keeps
+ * the all-or-nothing guarantee in a single place instead of in the caller's discipline.
  */
 public class JdbcUserRegistrationStore implements UserRegistrationStore {
 

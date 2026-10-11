@@ -33,6 +33,7 @@ class SecurityErrorResponses {
 
     private void write(HttpServletRequest request, HttpServletResponse response, HttpStatus status, String error, String message)
             throws IOException {
+        SecurityLog.accessRejected(status.value(), request.getMethod(), request.getRequestURI(), CorrelationIdFilter.idOf(request));
         response.setStatus(status.value());
         response.setContentType(ApiError.CONTENT_TYPE.toString());
         json.writeValue(response.getWriter(), ApiError.body(error, message, null, request));

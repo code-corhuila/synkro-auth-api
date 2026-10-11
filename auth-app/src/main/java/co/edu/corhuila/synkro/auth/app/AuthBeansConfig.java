@@ -15,6 +15,7 @@ import co.edu.corhuila.synkro.auth.application.port.out.HashFunction;
 import co.edu.corhuila.synkro.auth.application.port.out.IdGenerator;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
 import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore;
+import co.edu.corhuila.synkro.auth.application.port.out.RegistrationAttemptLog;
 import co.edu.corhuila.synkro.auth.application.port.out.ServiceTokenRepository;
 import co.edu.corhuila.synkro.auth.application.port.out.ServiceTokenSigner;
 import co.edu.corhuila.synkro.auth.application.port.out.ServiceTokenStore;
@@ -124,9 +125,15 @@ public class AuthBeansConfig {
     }
 
     @Bean
+    public RegistrationAttemptLog registrationAttemptLog() {
+        return new SecurityLog();
+    }
+
+    @Bean
     public RegisterUserUseCase registerUserUseCase(UserRepository users, UserRegistrationStore registrations,
-                                                   PasswordHasher hasher, IdGenerator ids, Clock clock) {
-        return new RegisterUserUseCase(users, registrations, hasher, ids, clock);
+                                                   PasswordHasher hasher, IdGenerator ids, Clock clock,
+                                                   RegistrationAttemptLog attempts) {
+        return new RegisterUserUseCase(users, registrations, hasher, ids, clock, attempts);
     }
 
     @Bean

@@ -105,11 +105,12 @@ stored as a SHA-256 hash with an `expiration_date` seven days ahead; rotating, l
 
 ### The first local user
 
-`synkro-auth-db` seeds no users, so a new local database has nobody to log in as. The normal way to create one
-is now `POST /api/v1/auth/register` (see [Users](#users-register-and-lookup)); it is public, so it needs no
-login first. `scripts/create-local-user.sh` remains for local convenience, for example to create an `ADMIN`
-without going through the API: it hashes a password with bcrypt on your machine, lowercases the email like the
-service does, and inserts the row as `auth_app`; nothing with a password or a hash is committed:
+`synkro-auth-db` seeds no users, so a new local database has nobody to log in as, and `POST /api/v1/auth/register`
+(see [Users](#users-register-and-lookup)) needs an `ADMIN` token. The first administrator therefore has to come from
+outside the API: `scripts/create-local-user.sh` creates one directly in the database. It hashes a password with bcrypt
+on your machine, lowercases the email like the service does, and inserts the row as `auth_app` (no audit row: the
+audit table records users registered through the API, and the initial-administrator procedure is a separate piece of
+work). Log in as that `ADMIN`, then register everyone else through the API. Nothing with a password or a hash is committed:
 
 ```bash
 export PGHOST=localhost PGPORT=5432 PGDATABASE=synkro PGUSER=auth_app PGPASSWORD='<auth_app password>'
@@ -136,7 +137,7 @@ A refresh token works once: using it returns a new pair and invalidates the old 
 
 | Endpoint | Who | Success |
 |---|---|---|
-| `POST /api/v1/auth/register` | Public: any caller, any of `ADMIN`, `SALESPERSON`, `INVENTORY` (a documented simplification of the academic MVP; there is no authorization on it) | `201` + `Location: /api/v1/auth/users/{id}`, or `200` on a replay; body `UserResponse` |
+| `POST /api/v1/auth/register` | A human `ADMIN` with a valid access token, decided in `RegisterUserUseCase` itself; it creates `ADMIN`, `SALESPERSON` or `INVENTORY` users | `201` + `Location: /api/v1/auth/users/{id}`, or `200` on a replay; body `UserResponse` |
 | `GET /api/v1/auth/users/{id}` | `ADMIN` only, decided in `GetUserUseCase` with `RoleGuard` | `200` `UserResponse` |
 
 `UserResponse` is `{ userId, name, email, role, registrationDate, active }`. The password and its hash are never
@@ -146,12 +147,45 @@ password would be silently truncated.
 
 **Headers.** `Idempotency-Key` (8–128 characters) is **required** on `register`; a missing or out-of-range key is a
 `400 VALIDATION_ERROR`. `X-Correlation-Id` is reused if sent, generated otherwise, echoed in every response and used
-as the `traceId` of every error. `Authorization: Bearer …` is needed for the lookup only.
+as the `traceId` of every error. `Authorization: Bearer …` is needed on both `register` and the lookup.
 
-**Idempotency.** The user and its `idempotency_key` row (type `USER`) are written in one transaction, started by
-the persistence adapter (`JdbcUserRegistrationStore`), so either both exist or neither does.
+**Who may register, and why.** Registration requires authentication because an unauthenticated caller must not be
+able to create or discover accounts, and it requires an `ADMIN` because creating an employee account is an
+administrative act that has to be attributable to a person. The use case receives the verified caller from the HTTP
+adapter (the token's claims, never the body or an `X-User-*` header) and refuses it itself, so the rule holds when the
+use case is called without the HTTP layer or a gateway in front of it:
 
-- First request: `201`. The same key with the same request again: `200` with the same user, nothing created.
+- no valid token: `401`; a `SALESPERSON` or `INVENTORY` token: `403`;
+- a human token (any role other than `SERVICE`) whose `sub` is not a UUID in its canonical form (36 characters,
+  with dashes) is not a valid identity: `401`, on every protected route. A human is identified by a user id, so the
+  HTTP adapter, which owns authentication, refuses anything else before a use case runs. Login and refresh stay
+  public, and an invalid `Authorization` header on them is still ignored. A `SERVICE` token is identified by its
+  service name and is not held to that rule;
+- a well-formed `ADMIN` token whose user does not exist is `403` with a generic message, decided in the use case
+  before the request is validated and before the key or the email is read: a token alone does not prove that the
+  account is there, and a refusal must not reveal what the key produced. A database that cannot answer that lookup
+  is a `500`, never a `403`: an unreachable store is not an absent administrator. The identity and the role still
+  come from the validated token, so this check does not revoke anything: a deactivated or demoted administrator
+  keeps working until the token expires, and that policy is not changed here;
+- a `SERVICE` token is always `403`, even for an `Idempotency-Key` that already created a user;
+- authorization is decided **before** the request is validated and **before** the idempotency key is looked up, so a
+  refused caller cannot learn whether a key already produced a user: a refused replay gets the same `403` as a first attempt.
+
+**Idempotency.** The user, its `idempotency_key` row (type `USER`) and its `USER_REGISTERED` row in
+`auth_schema.user_creation_audit` are written in one transaction on one connection, started by the persistence adapter
+(`JdbcUserRegistrationStore`) and invisible to the use case, which only sees the `UserRegistrationStore` port. Either
+all three exist or none does: if the audit insert fails, the user and the key are rolled back with it, so a user can
+never exist without the record of who created it. The audit row holds the creator (the `ADMIN`'s user id from the
+token), the created user's id, the UTC time, `outcome = SUCCESS` and the request's correlation id.
+
+- First request: `201`. The same key with the same request again: `200` with the same user, nothing created and no
+  second audit row (N identical authorized replays leave exactly one).
+- **Limit of the actor check.** The existence check and the insert are two steps. `auth_app` has no `DELETE`, and the
+  audit foreign keys are `ON DELETE RESTRICT`, so a user that an audit row already names cannot be deleted. An
+  administrator who has not yet created anyone could still be removed by a privileged intervention between the check
+  and the insert. The foreign key on the audit row's creator is the final protection: the transaction fails as a
+  `500` and the user and the key roll back with it, so nothing is created without its audit row. No lock is added
+  for that exceptional case.
 - The same key with a **different** request: `422 BUSINESS_RULE_VIOLATION` on `Idempotency-Key`. The table keeps no
   fingerprint of the request, so the service compares it with the user the key created (name, email, role and, with
   bcrypt, the password). A key is only an answer to the request that made it: replaying someone else's key must not
@@ -159,6 +193,13 @@ the persistence adapter (`JdbcUserRegistrationStore`), so either both exist or n
 - Two simultaneous requests with the same key create one user and both succeed (`201` and `200`).
 - A new key with an email that is already registered: `422 BUSINESS_RULE_VIOLATION` with `email` in `details`,
   also when two such requests arrive at once (the unique violation is translated, never a `500`).
+
+**Rejected attempts are not audit records.** `user_creation_audit` holds successful creations only (its
+`outcome` is constrained to `SUCCESS`). A `401`, `403`, `400`, `422` or a failure is written to the security log
+(logger `synkro.auth.security`, one `WARN` line with the correlation id, the caller's id when there is one and the
+reason), after the registration transaction has ended. Those lines never contain the password, its hash, a token, the
+request body or a user id: nothing was created, so there is no user to attribute. A `500` caused by a failing audit
+write leaves no user and no key behind.
 
 **Emails** are trimmed and lowercased on `register` and on `login`, so `Ana@Example.test` and `ana@example.test`
 are one address. A row stored with upper-case letters before this change (for example by an older
@@ -171,7 +212,7 @@ are one address. A row stored with upper-case letters before this change (for ex
 |---|---|---|
 | 400 | `VALIDATION_ERROR` | invalid or missing field or header (problems in `details`), malformed JSON; also `405` and `415`, which the catalog has no code for |
 | 401 | `UNAUTHORIZED` | no token, a fake or expired one, wrong credentials. The gate runs first: an unknown route without a valid token is a `401`, not a `404` |
-| 403 | `FORBIDDEN` | a valid token whose role may not do it (the lookup with a `SALESPERSON`, `INVENTORY` or `SERVICE` token) |
+| 403 | `FORBIDDEN` | a valid token whose role may not do it (`register` or the lookup with a `SALESPERSON`, `INVENTORY` or `SERVICE` token) |
 | 404 | `NOT_FOUND` | unknown user or service token id (a malformed id is the same `404`) or an unknown route, for a caller with a valid token |
 | 405 | `VALIDATION_ERROR` | a wrong method on a known route, with the `Allow` header, for a caller with a valid token |
 | 422 | `BUSINESS_RULE_VIOLATION` | email already registered; idempotency key reused with another request (another user, or another service for a service token) |
@@ -189,6 +230,7 @@ check the work performed, not the milliseconds.
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/auth/register \
   -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
+  -H "Authorization: Bearer <ADMIN access token>" \
   -d '{"name":"Ana Pérez","email":"ana@example.test","password":"<at least 8 characters>","role":"ADMIN"}'
 # 201 {"userId":"…","name":"Ana Pérez","email":"ana@example.test","role":"ADMIN","registrationDate":"…","active":true}
 
@@ -321,8 +363,9 @@ refresh token are all `401 UNAUTHORIZED`. A valid token whose role does not allo
 the common error envelope `{ error, message, details?, traceId }`, where `traceId` is the request's
 `X-Correlation-Id` (generated when the client sends none) and the response echoes that header.
 
-**Public routes** (no token needed): `GET /health`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh` and
-`POST /api/v1/auth/register`. Only those methods are public: a wrong method on them without a token is a `401`.
+**Public routes** (no token needed): `GET /health`, `POST /api/v1/auth/login` and `POST /api/v1/auth/refresh`.
+`register` is not public: an unauthenticated caller must not be able to create or discover accounts. Only those
+methods are public: a wrong method on them without a token is a `401`.
 Everything else requires a valid token. That includes `POST /api/v1/auth/logout`. An invalid `Authorization` header on a public route is ignored, so an
 expired access token never blocks `refresh`.
 

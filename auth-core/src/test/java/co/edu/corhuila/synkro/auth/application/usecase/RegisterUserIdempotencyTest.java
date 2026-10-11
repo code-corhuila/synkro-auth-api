@@ -3,6 +3,7 @@ package co.edu.corhuila.synkro.auth.application.usecase;
 import co.edu.corhuila.synkro.auth.application.port.out.IdGenerator;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore;
+import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore.CreationAttribution;
 import co.edu.corhuila.synkro.auth.domain.model.SystemUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -10,7 +11,9 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.ADMIN_CALLER;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.CLOCK;
+import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.CORRELATION_ID;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.PASSWORD_HASHER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -42,7 +45,7 @@ class RegisterUserIdempotencyTest {
         };
         AtomicInteger sequence = new AtomicInteger();
         IdGenerator ids = () -> "user-" + sequence.incrementAndGet();
-        register = new RegisterUserUseCase(store, store, counting, ids, CLOCK);
+        register = new RegisterUserUseCase(store, store, counting, ids, CLOCK, Fakes.IGNORED_ATTEMPTS);
     }
 
     private static RegisterUserCommand command(String key, String name, String email, String password, String role) {
@@ -55,9 +58,9 @@ class RegisterUserIdempotencyTest {
 
     @Test
     void theSameKeyAndRequest_returnsTheSameUser_andSavesNothingNew() {
-        RegisterUserResult first = register.execute(original());
+        RegisterUserResult first = register.execute(ADMIN_CALLER, CORRELATION_ID, original());
 
-        RegisterUserResult second = register.execute(original());
+        RegisterUserResult second = register.execute(ADMIN_CALLER, CORRELATION_ID, original());
 
         assertThat(first.created()).isTrue();
         assertThat(second.created()).isFalse();
@@ -69,17 +72,17 @@ class RegisterUserIdempotencyTest {
 
     @Test
     void aReplayDoesNotHashThePasswordAgain() {
-        register.execute(original());
-        register.execute(original());
+        register.execute(ADMIN_CALLER, CORRELATION_ID, original());
+        register.execute(ADMIN_CALLER, CORRELATION_ID, original());
 
         assertThat(hashCalls).hasValue(1);
     }
 
     @Test
     void aReplayThatSpellsTheEmailDifferently_isStillTheSameRequest() {
-        RegisterUserResult first = register.execute(original());
+        RegisterUserResult first = register.execute(ADMIN_CALLER, CORRELATION_ID, original());
 
-        RegisterUserResult second = register.execute(
+        RegisterUserResult second = register.execute(ADMIN_CALLER, CORRELATION_ID, 
             command(KEY, "Ana Perez", "  ANA@synkro.TEST", "a-long-password", "SALESPERSON"));
 
         assertThat(second.created()).isFalse();
@@ -88,14 +91,14 @@ class RegisterUserIdempotencyTest {
 
     @Test
     void theSameKeyWithADifferentBody_isRefused_andShowsNothingOfTheFirstUser() {
-        register.execute(original());
+        register.execute(ADMIN_CALLER, CORRELATION_ID, original());
 
         for (RegisterUserCommand other : new RegisterUserCommand[] {
             command(KEY, "Someone Else", "ana@synkro.test", "a-long-password", "SALESPERSON"),
             command(KEY, "Ana Perez", "other@synkro.test", "a-long-password", "SALESPERSON"),
             command(KEY, "Ana Perez", "ana@synkro.test", "another-password", "SALESPERSON"),
             command(KEY, "Ana Perez", "ana@synkro.test", "a-long-password", "ADMIN")}) {
-            assertThatThrownBy(() -> register.execute(other))
+            assertThatThrownBy(() -> register.execute(ADMIN_CALLER, CORRELATION_ID, other))
                 .isInstanceOfSatisfying(BusinessRuleViolationException.class, e -> {
                     assertThat(e.field()).isEqualTo("Idempotency-Key");
                     assertThat(e.getMessage()).doesNotContain("ana@synkro.test", "Ana Perez", "user-1");
@@ -115,13 +118,13 @@ class RegisterUserIdempotencyTest {
             }
 
             @Override
-            public Registered registerOnce(String idempotencyKey, SystemUser user) {
+            public Registered registerUserWithAttribution(String idempotencyKey, SystemUser user, CreationAttribution attribution) {
                 return new Registered(winner, false);
             }
         };
-        RegisterUserUseCase loser = new RegisterUserUseCase(store, racing, PASSWORD_HASHER, () -> "loser-id", CLOCK);
+        RegisterUserUseCase loser = new RegisterUserUseCase(store, racing, PASSWORD_HASHER, () -> "loser-id", CLOCK, Fakes.IGNORED_ATTEMPTS);
 
-        RegisterUserResult result = loser.execute(original());
+        RegisterUserResult result = loser.execute(ADMIN_CALLER, CORRELATION_ID, original());
 
         assertThat(result.created()).isFalse();
         assertThat(result.user().getUserId()).isEqualTo("winner-id");
@@ -138,12 +141,12 @@ class RegisterUserIdempotencyTest {
             }
 
             @Override
-            public Registered registerOnce(String idempotencyKey, SystemUser user) {
+            public Registered registerUserWithAttribution(String idempotencyKey, SystemUser user, CreationAttribution attribution) {
                 return new Registered(winner, false);
             }
         };
-        RegisterUserUseCase loser = new RegisterUserUseCase(store, racing, PASSWORD_HASHER, () -> "loser-id", CLOCK);
+        RegisterUserUseCase loser = new RegisterUserUseCase(store, racing, PASSWORD_HASHER, () -> "loser-id", CLOCK, Fakes.IGNORED_ATTEMPTS);
 
-        assertThatThrownBy(() -> loser.execute(original())).isInstanceOf(BusinessRuleViolationException.class);
+        assertThatThrownBy(() -> loser.execute(ADMIN_CALLER, CORRELATION_ID, original())).isInstanceOf(BusinessRuleViolationException.class);
     }
 }

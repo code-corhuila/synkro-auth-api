@@ -10,7 +10,9 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.ADMIN_CALLER;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.CLOCK;
+import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.CORRELATION_ID;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.PASSWORD_HASHER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -55,9 +57,9 @@ class RegisterUserIdempotencyTest {
 
     @Test
     void theSameKeyAndRequest_returnsTheSameUser_andSavesNothingNew() {
-        RegisterUserResult first = register.execute(original());
+        RegisterUserResult first = register.execute(ADMIN_CALLER, CORRELATION_ID, original());
 
-        RegisterUserResult second = register.execute(original());
+        RegisterUserResult second = register.execute(ADMIN_CALLER, CORRELATION_ID, original());
 
         assertThat(first.created()).isTrue();
         assertThat(second.created()).isFalse();
@@ -69,17 +71,17 @@ class RegisterUserIdempotencyTest {
 
     @Test
     void aReplayDoesNotHashThePasswordAgain() {
-        register.execute(original());
-        register.execute(original());
+        register.execute(ADMIN_CALLER, CORRELATION_ID, original());
+        register.execute(ADMIN_CALLER, CORRELATION_ID, original());
 
         assertThat(hashCalls).hasValue(1);
     }
 
     @Test
     void aReplayThatSpellsTheEmailDifferently_isStillTheSameRequest() {
-        RegisterUserResult first = register.execute(original());
+        RegisterUserResult first = register.execute(ADMIN_CALLER, CORRELATION_ID, original());
 
-        RegisterUserResult second = register.execute(
+        RegisterUserResult second = register.execute(ADMIN_CALLER, CORRELATION_ID, 
             command(KEY, "Ana Perez", "  ANA@synkro.TEST", "a-long-password", "SALESPERSON"));
 
         assertThat(second.created()).isFalse();
@@ -88,14 +90,14 @@ class RegisterUserIdempotencyTest {
 
     @Test
     void theSameKeyWithADifferentBody_isRefused_andShowsNothingOfTheFirstUser() {
-        register.execute(original());
+        register.execute(ADMIN_CALLER, CORRELATION_ID, original());
 
         for (RegisterUserCommand other : new RegisterUserCommand[] {
             command(KEY, "Someone Else", "ana@synkro.test", "a-long-password", "SALESPERSON"),
             command(KEY, "Ana Perez", "other@synkro.test", "a-long-password", "SALESPERSON"),
             command(KEY, "Ana Perez", "ana@synkro.test", "another-password", "SALESPERSON"),
             command(KEY, "Ana Perez", "ana@synkro.test", "a-long-password", "ADMIN")}) {
-            assertThatThrownBy(() -> register.execute(other))
+            assertThatThrownBy(() -> register.execute(ADMIN_CALLER, CORRELATION_ID, other))
                 .isInstanceOfSatisfying(BusinessRuleViolationException.class, e -> {
                     assertThat(e.field()).isEqualTo("Idempotency-Key");
                     assertThat(e.getMessage()).doesNotContain("ana@synkro.test", "Ana Perez", "user-1");
@@ -121,7 +123,7 @@ class RegisterUserIdempotencyTest {
         };
         RegisterUserUseCase loser = new RegisterUserUseCase(store, racing, PASSWORD_HASHER, () -> "loser-id", CLOCK);
 
-        RegisterUserResult result = loser.execute(original());
+        RegisterUserResult result = loser.execute(ADMIN_CALLER, CORRELATION_ID, original());
 
         assertThat(result.created()).isFalse();
         assertThat(result.user().getUserId()).isEqualTo("winner-id");
@@ -144,6 +146,6 @@ class RegisterUserIdempotencyTest {
         };
         RegisterUserUseCase loser = new RegisterUserUseCase(store, racing, PASSWORD_HASHER, () -> "loser-id", CLOCK);
 
-        assertThatThrownBy(() -> loser.execute(original())).isInstanceOf(BusinessRuleViolationException.class);
+        assertThatThrownBy(() -> loser.execute(ADMIN_CALLER, CORRELATION_ID, original())).isInstanceOf(BusinessRuleViolationException.class);
     }
 }

@@ -17,6 +17,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Date;
 import java.util.List;
 import java.util.Set;
 
@@ -46,7 +47,9 @@ class Rs256ServiceTokenSignerTest {
     }
 
     private static Jws<Claims> parse(String token) {
-        return Jwts.parser().verifyWith(pair.getPublic()).build().parseSignedClaims(token);
+        return Jwts.parser().verifyWith(pair.getPublic())
+            .clock(() -> Date.from(ISSUED_AT.plusSeconds(60)))
+            .build().parseSignedClaims(token);
     }
 
     private static Rs256TokenVerifier verifierAt(Instant now) {

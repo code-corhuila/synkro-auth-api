@@ -7,6 +7,7 @@ import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore.Re
 import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
 import co.edu.corhuila.synkro.auth.domain.model.AuthenticatedCaller;
 import co.edu.corhuila.synkro.auth.domain.model.Emails;
+import co.edu.corhuila.synkro.auth.domain.model.Roles;
 import co.edu.corhuila.synkro.auth.domain.model.SystemUser;
 
 import java.time.Clock;
@@ -30,9 +31,7 @@ public class RegisterUserUseCase {
     }
 
     public RegisterUserResult execute(AuthenticatedCaller caller, String correlationId, RegisterUserCommand command) {
-        if (caller == null) {
-            throw new UnauthenticatedException();
-        }
+        requireHumanAdmin(caller);
         RegisterUserValidator.validate(command);
         String email = Emails.normalize(command.email());
 
@@ -50,6 +49,18 @@ public class RegisterUserUseCase {
             command.role(), clock.instant().truncatedTo(ChronoUnit.MICROS), true);
         Registered saved = registrations.registerOnce(command.idempotencyKey(), user);
         return saved.created() ? new RegisterUserResult(saved.user(), true) : replay(command, email, saved.user());
+    }
+
+    // Authorization comes before anything else, the idempotency lookup included: a caller that may not register
+    // must learn nothing about a key, so a replay is refused exactly like a first attempt.
+    private static void requireHumanAdmin(AuthenticatedCaller caller) {
+        if (caller == null) {
+            throw new UnauthenticatedException();
+        }
+        if (caller.isService()) {
+            throw new ForbiddenException("A service is not authorized to register users");
+        }
+        RoleGuard.requireAnyRole(caller, "register users", Roles.ADMIN);
     }
 
     // A key is only an answer to the request that created it: anything else must not be shown that user.

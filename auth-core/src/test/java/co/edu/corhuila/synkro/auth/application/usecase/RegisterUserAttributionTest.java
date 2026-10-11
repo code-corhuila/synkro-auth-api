@@ -31,6 +31,7 @@ class RegisterUserAttributionTest {
     }
 
     @Test
+    @org.junit.jupiter.api.Tag("AUTH-REG-01")
     void aCreatedUserIsAttributedToTheVerifiedCaller_withTheRequestsCorrelationIdAndTheCurrentTime() {
         RegisterUserResult result = register.execute(ADMIN_CALLER, CORRELATION_ID, command());
 
@@ -42,6 +43,7 @@ class RegisterUserAttributionTest {
     }
 
     @Test
+    @org.junit.jupiter.api.Tag("AUTH-REG-04")
     void aReplayRecordsNoSecondAttribution() {
         register.execute(ADMIN_CALLER, CORRELATION_ID, command());
 

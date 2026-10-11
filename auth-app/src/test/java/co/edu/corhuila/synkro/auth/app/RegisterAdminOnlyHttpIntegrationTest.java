@@ -118,11 +118,11 @@ class RegisterAdminOnlyHttpIntegrationTest {
         return new Rows(count("system_user"), count("idempotency_key"), count("user_creation_audit"));
     }
 
-    // ── AUTH-REG-01: authentication required ─────────────────────────
+    // ── AUTH-REG-02: authentication (401) ────────────────────────────────────────────────
 
     @Test
-    @Tag("AUTH-REG-01")
-    void case1_aMissingAuthorizationHeader_is401_andWritesNothing() throws Exception {
+    @Tag("AUTH-REG-02")
+    void unauthenticated_aMissingAuthorizationHeader_is401_andWritesNothing() throws Exception {
         Rows before = rows();
 
         ResponseEntity<String> response = register(request(DatabaseTestSupport.uniqueEmail(), "SALESPERSON"), newKey(), null);
@@ -133,8 +133,8 @@ class RegisterAdminOnlyHttpIntegrationTest {
     }
 
     @Test
-    @Tag("AUTH-REG-01")
-    void case2_aMalformedToken_is401_andWritesNothing() {
+    @Tag("AUTH-REG-02")
+    void unauthenticated_aMalformedToken_is401_andWritesNothing() {
         Rows before = rows();
 
         ResponseEntity<String> response = register(request(DatabaseTestSupport.uniqueEmail(), "SALESPERSON"), newKey(), bearer("not.a.jwt"));
@@ -144,8 +144,8 @@ class RegisterAdminOnlyHttpIntegrationTest {
     }
 
     @Test
-    @Tag("AUTH-REG-01")
-    void case3_anExpiredToken_is401_andWritesNothing() {
+    @Tag("AUTH-REG-02")
+    void unauthenticated_anExpiredToken_is401_andWritesNothing() {
         String expired = tokenFor(KEYS, seededUser("ADMIN"), "ADMIN", Instant.now().minusSeconds(3600));
         Rows before = rows();
 
@@ -156,8 +156,8 @@ class RegisterAdminOnlyHttpIntegrationTest {
     }
 
     @Test
-    @Tag("AUTH-REG-01")
-    void case4_aTokenWithAnInvalidSignature_is401_andWritesNothing() {
+    @Tag("AUTH-REG-02")
+    void unauthenticated_aTokenWithAnInvalidSignature_is401_andWritesNothing() {
         String forged = tokenFor(OTHER_KEYS, seededUser("ADMIN"), "ADMIN", Instant.now().plusSeconds(300));
         Rows before = rows();
 
@@ -167,7 +167,7 @@ class RegisterAdminOnlyHttpIntegrationTest {
         assertThat(rows()).isEqualTo(before);
     }
 
-    // ── AUTH-REG-02: authorization ───────────────────────────────────
+    // ── AUTH-REG-02: authorization (403) ───────────────────────────────────────────────────────────
 
     private String tokenOf(String role) {
         String subject = "SERVICE".equals(role) ? "synkro-workflow" : seededUser(role);
@@ -177,7 +177,7 @@ class RegisterAdminOnlyHttpIntegrationTest {
     @ParameterizedTest
     @ValueSource(strings = {"SALESPERSON", "INVENTORY"})
     @Tag("AUTH-REG-02")
-    void case6and7_aValidTokenForAnotherHumanRole_is403_andWritesNothing(String role) throws Exception {
+    void forbidden_aValidTokenForAnotherHumanRole_is403_andWritesNothing(String role) throws Exception {
         String token = tokenOf(role);
         String email = DatabaseTestSupport.uniqueEmail();
         Rows before = rows();
@@ -192,7 +192,7 @@ class RegisterAdminOnlyHttpIntegrationTest {
 
     @Test
     @Tag("AUTH-REG-02")
-    void case8_aServiceToken_is403_evenWithAKeyThatAlreadyCreatedAUser_andTheUserIsNotDisclosed() throws Exception {
+    void forbidden_aServiceToken_is403_evenWithAKeyThatAlreadyCreatedAUser_andTheUserIsNotDisclosed() throws Exception {
         String email = DatabaseTestSupport.uniqueEmail();
         String key = newKey();
         ResponseEntity<String> created = register(request(email, "SALESPERSON"), key, tokenOf("ADMIN"));
@@ -210,7 +210,7 @@ class RegisterAdminOnlyHttpIntegrationTest {
 
     @Test
     @Tag("AUTH-REG-02")
-    void case9_anAdminToken_proceedsPastAuthorization() {
+    void authorized_anAdminToken_proceedsPastAuthorization() {
         ResponseEntity<String> response = register(request(DatabaseTestSupport.uniqueEmail(), "SALESPERSON"), newKey(), tokenOf("ADMIN"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
@@ -229,7 +229,7 @@ class RegisterAdminOnlyHttpIntegrationTest {
 
     @Test
     @Tag("AUTH-REG-04")
-    void case14_theFirstCreate_is201_andLeavesOneRowInEachOfTheThreeTables_attributedToTheAdmin() throws Exception {
+    void atomicity_theFirstCreate_is201_andLeavesOneRowInEachOfTheThreeTables_attributedToTheAdmin() throws Exception {
         String adminId = seededUser("ADMIN");
         String correlation = "corr-" + UUID.randomUUID();
         Rows before = rows();
@@ -256,7 +256,7 @@ class RegisterAdminOnlyHttpIntegrationTest {
 
     @Test
     @Tag("AUTH-REG-03")
-    void case11_replayingTheSameAuthorizedRequestAndKey_is200WithTheSameUser_andTheAuditCountStaysAtOne() throws Exception {
+    void replay_replayingTheSameAuthorizedRequestAndKey_is200WithTheSameUser_andTheAuditCountStaysAtOne() throws Exception {
         String token = adminBearer(seededUser("ADMIN"));
         String email = DatabaseTestSupport.uniqueEmail();
         String key = newKey();
@@ -276,7 +276,7 @@ class RegisterAdminOnlyHttpIntegrationTest {
 
     @Test
     @Tag("AUTH-REG-03")
-    void case12_aDuplicateEmailWithANewKey_is422BusinessRuleViolation_andWritesNoAuditRow() throws Exception {
+    void duplicateEmail_aDuplicateEmailWithANewKey_is422BusinessRuleViolation_andWritesNoAuditRow() throws Exception {
         String token = adminBearer(seededUser("ADMIN"));
         String email = DatabaseTestSupport.uniqueEmail();
         register(request(email, "INVENTORY"), newKey(), token);
@@ -289,10 +289,24 @@ class RegisterAdminOnlyHttpIntegrationTest {
         assertThat(rows()).isEqualTo(before);
     }
 
+    // ── the ADMIN named by the token ─────────────────────────────────
+
     @Test
-    @Tag("AUTH-REG-04")
-    void case15_whenTheAuditWriteFails_theUserAndTheKeyAreRolledBackToo() throws Exception {
-        // A valid ADMIN token whose subject is not a stored user: the audit row's creator foreign key fails last.
+    @Tag("AUTH-REG-02")
+    void subject_aHumanAdminTokenWithASubjectThatIsNotAUuid_is401_andWritesNothing() throws Exception {
+        String malformedSubject = bearer(tokenFor(KEYS, "not-a-uuid", "ADMIN", Instant.now().plusSeconds(300)));
+        Rows before = rows();
+
+        ResponseEntity<String> response = register(request(DatabaseTestSupport.uniqueEmail(), "INVENTORY"), newKey(), malformedSubject);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(body(response).get("error").asText()).isEqualTo("UNAUTHORIZED");
+        assertThat(rows()).isEqualTo(before);
+    }
+
+    @Test
+    @Tag("AUTH-REG-02")
+    void subject_anAdminTokenWithAWellFormedUuidThatDoesNotExist_is403_andWritesNothing() throws Exception {
         String ghostAdmin = adminBearer(UUID.randomUUID().toString());
         String email = DatabaseTestSupport.uniqueEmail();
         String key = newKey();
@@ -300,17 +314,164 @@ class RegisterAdminOnlyHttpIntegrationTest {
 
         ResponseEntity<String> response = register(request(email, "INVENTORY"), key, ghostAdmin);
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
-        assertThat(body(response).get("error").asText()).isEqualTo("INTERNAL_ERROR");
-        assertThat(response.getBody()).doesNotContain(email).doesNotContain("user_creation_audit").doesNotContain("constraint");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(body(response).get("error").asText()).isEqualTo("FORBIDDEN");
+        assertThat(response.getBody()).doesNotContain(email).doesNotContain("exist").doesNotContain("userId");
         assertThat(rows()).isEqualTo(before);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM auth_schema.system_user WHERE email = ?", Integer.class, email)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM auth_schema.idempotency_key WHERE key = ?", Integer.class, key)).isZero();
     }
 
     @Test
+    @Tag("AUTH-REG-02")
+    void subject_aMissingAdminReplayingAKeyThatAlreadyCreatedAUser_is403_andTheUserIsNotDisclosed() throws Exception {
+        String email = DatabaseTestSupport.uniqueEmail();
+        String key = newKey();
+        ResponseEntity<String> created = register(request(email, "INVENTORY"), key, adminBearer(seededUser("ADMIN")));
+        String userId = body(created).get("userId").asText();
+        Rows before = rows();
+
+        ResponseEntity<String> replay = register(request(email, "INVENTORY"), key, adminBearer(UUID.randomUUID().toString()));
+
+        assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(replay.getBody()).doesNotContain(email).doesNotContain(userId);
+        assertThat(replay.getHeaders().getLocation()).isNull();
+        assertThat(rows()).isEqualTo(before);
+    }
+
+    @Test
+    @Tag("AUTH-REG-02")
+    void subject_aServiceTokenWithAServiceNameAsSubject_isAuthenticated_andForbiddenToRegister() throws Exception {
+        Rows before = rows();
+
+        ResponseEntity<String> response = register(request(DatabaseTestSupport.uniqueEmail(), "INVENTORY"), newKey(), tokenOf("SERVICE"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(rows()).isEqualTo(before);
+    }
+
+    @Test
+    @Tag("AUTH-REG-03")
+    void serviceAsTheRequestedRole_is400_andWritesNothing() throws Exception {
+        Rows before = rows();
+
+        ResponseEntity<String> response = register(request(DatabaseTestSupport.uniqueEmail(), "SERVICE"), newKey(), adminBearer(seededUser("ADMIN")));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(body(response).get("error").asText()).isEqualTo("VALIDATION_ERROR");
+        assertThat(rows().keys()).isEqualTo(before.keys());
+        assertThat(rows().audits()).isEqualTo(before.audits());
+    }
+
+    // ── scope of the UUID rule: every protected route, never the public ones ──
+
+    private String tokenWithRoles(String subject, List<String> roles) {
+        return Jwts.builder().subject(subject).claim("roles", roles).claim("permissions", List.of())
+            .expiration(Date.from(Instant.now().plusSeconds(300))).signWith(KEYS.getPrivate(), Jwts.SIG.RS256).compact();
+    }
+
+    private ResponseEntity<String> send(HttpMethod method, String path, Object body, String authorization) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        if (authorization != null) {
+            headers.set("Authorization", authorization);
+        }
+        return http.exchange("http://localhost:" + port + path, method, new HttpEntity<>(body, headers), String.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1-1-1-1-1", "00000000000000000000000000000001", "{00000000-0000-0000-0000-000000000001}", "user-42", ""})
+    @Tag("AUTH-REG-02")
+    void subject_aHumanSubjectThatIsNotInCanonicalUuidForm_is401_andWritesNothing(String subject) {
+        // "1-1-1-1-1" and the undashed form are accepted by java.util.UUID.fromString; only the canonical form is an identity here
+        Rows before = rows();
+        String token = tokenWithRoles(subject.isEmpty() ? " " : subject, List.of("ADMIN"));
+
+        ResponseEntity<String> response = register(request(DatabaseTestSupport.uniqueEmail(), "INVENTORY"), newKey(), bearer(token));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(rows()).isEqualTo(before);
+    }
+
+    @Test
+    @Tag("AUTH-REG-02")
+    void subject_aTokenCarryingBothAdminAndService_isForbiddenToRegister_andWritesNothing() {
+        Rows before = rows();
+        String token = tokenWithRoles("synkro-workflow", List.of("ADMIN", "SERVICE"));
+
+        ResponseEntity<String> response = register(request(DatabaseTestSupport.uniqueEmail(), "INVENTORY"), newKey(), bearer(token));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(rows()).isEqualTo(before);
+    }
+
+    @Test
+    @Tag("AUTH-REG-02")
+    void subject_aMalformedHumanSubject_is401OnAProtectedLookup_andAValidOneStillReadsTheUser() throws Exception {
+        String adminId = seededUser("ADMIN");
+
+        assertThat(send(HttpMethod.GET, "/api/v1/auth/users/" + adminId, null, bearer(tokenWithRoles("user-42", List.of("ADMIN")))).getStatusCode())
+            .isEqualTo(HttpStatus.UNAUTHORIZED);
+        ResponseEntity<String> valid = send(HttpMethod.GET, "/api/v1/auth/users/" + adminId, null, adminBearer(adminId));
+        assertThat(valid.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(body(valid).get("userId").asText()).isEqualTo(adminId);
+    }
+
+    @Test
+    @Tag("AUTH-REG-02")
+    void subject_aBadSubjectOnTheAuthorizationHeader_doesNotBlockLoginOrRefresh() throws Exception {
+        String email = DatabaseTestSupport.uniqueEmail();
+        DatabaseTestSupport.insertUser(jdbc, email, PASSWORD, "INVENTORY", true);
+        String badHeader = bearer(tokenWithRoles("user-42", List.of("ADMIN")));
+
+        ResponseEntity<String> login = send(HttpMethod.POST, "/api/v1/auth/login", Map.of("email", email, "password", PASSWORD), badHeader);
+        assertThat(login.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String refreshToken = body(login).get("refreshToken").asText();
+
+        ResponseEntity<String> refresh = send(HttpMethod.POST, "/api/v1/auth/refresh", Map.of("refreshToken", refreshToken), badHeader);
+        assertThat(refresh.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    // ── AUTH-REG-01: an ADMIN creates each permitted human role ──────
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ADMIN", "SALESPERSON", "INVENTORY"})
+    @Tag("AUTH-REG-01")
+    void anAdminCreatesEachPermittedHumanRole_attributedToTheTokensSubject_withAHashedPassword(String role) throws Exception {
+        String adminId = seededUser("ADMIN");
+        String email = DatabaseTestSupport.uniqueEmail();
+
+        ResponseEntity<String> response = register(request(email, role), newKey(), adminBearer(adminId));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String userId = body(response).get("userId").asText();
+        assertThat(body(response).get("role").asText()).isEqualTo(role);
+        String storedHash = jdbc.queryForObject("SELECT password_hash FROM auth_schema.system_user WHERE user_id = ?::uuid", String.class, userId);
+        assertThat(storedHash).startsWith("$2").isNotEqualTo(PASSWORD);
+        assertThat(response.getBody()).doesNotContain(PASSWORD).doesNotContain(storedHash);
+        assertThat(jdbc.queryForObject("SELECT actor_user_id::text FROM auth_schema.user_creation_audit WHERE created_user_id = ?::uuid",
+            String.class, userId)).isEqualTo(adminId);
+    }
+
+    @Test
+    @Tag("AUTH-REG-01")
+    void theCreatorIsTheTokensSubject_notAnyFieldOfTheBodyOrAUserHeader() throws Exception {
+        String adminId = seededUser("ADMIN");
+        String someoneElse = seededUser("ADMIN");
+        Map<String, Object> body = request(DatabaseTestSupport.uniqueEmail(), "INVENTORY");
+        body.put("createdBy", someoneElse);
+        body.put("actorUserId", someoneElse);
+
+        ResponseEntity<String> response = register(body, newKey(), adminBearer(adminId),
+            "X-User-Id", someoneElse, "X-User-Role", "ADMIN");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(jdbc.queryForObject("SELECT actor_user_id::text FROM auth_schema.user_creation_audit WHERE created_user_id = ?::uuid",
+            String.class, body(response).get("userId").asText())).isEqualTo(adminId);
+    }
+
+    @Test
     @Tag("AUTH-REG-04")
-    void case16_concurrentAuthorizedRequestsWithTheSameKey_createOneUser_andWriteOneAuditRow() throws Exception {
+    void atomicity_concurrentAuthorizedRequestsWithTheSameKey_createOneUser_andWriteOneAuditRow() throws Exception {
         String token = adminBearer(seededUser("ADMIN"));
         for (int round = 0; round < 5; round++) {
             String email = DatabaseTestSupport.uniqueEmail();

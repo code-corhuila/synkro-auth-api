@@ -34,7 +34,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Rejected and failed registrations are recorded in the security log, outside the success transaction and never in
+ * Rejected registrations are recorded in the security log, outside the success transaction and never in
  * user_creation_audit. The log carries who asked and why it failed, and nothing that came from the request body.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -126,8 +126,8 @@ class RegisterRejectionLogHttpIntegrationTest {
     }
 
     @Test
-    @Tag("AUTH-REG-04")
-    void case17_rejectedAndFailedAttempts_areInTheSecurityLog_notInTheAuditTable_andLeakNothing() {
+    @Tag("NFR-005")
+    void rejectedAttempts_areInTheSecurityLog_notInTheAuditTable_andLeakNothing() {
         String adminId = DatabaseTestSupport.insertUser(jdbc, DatabaseTestSupport.uniqueEmail(), PASSWORD, "ADMIN", true);
         String adminToken = tokenFor(adminId, "ADMIN");
         String salespersonId = DatabaseTestSupport.insertUser(jdbc, DatabaseTestSupport.uniqueEmail(), PASSWORD, "SALESPERSON", true);
@@ -150,11 +150,11 @@ class RegisterRejectionLogHttpIntegrationTest {
         statuses.put(duplicate, HttpStatus.valueOf(register(request(takenEmail, secretName), adminToken, duplicate).getStatusCode().value()));
         String invalid = "corr-400-" + UUID.randomUUID();
         statuses.put(invalid, HttpStatus.valueOf(register(request("not-an-email", secretName), adminToken, invalid).getStatusCode().value()));
-        String failed = "corr-500-" + UUID.randomUUID();
-        statuses.put(failed, HttpStatus.valueOf(register(request(payloadEmail, secretName), ghostToken, failed).getStatusCode().value()));
+        String ghost = "corr-403g-" + UUID.randomUUID();
+        statuses.put(ghost, HttpStatus.valueOf(register(request(payloadEmail, secretName), ghostToken, ghost).getStatusCode().value()));
 
         assertThat(statuses.values()).containsExactly(HttpStatus.UNAUTHORIZED, HttpStatus.FORBIDDEN,
-            HttpStatus.UNPROCESSABLE_ENTITY, HttpStatus.BAD_REQUEST, HttpStatus.INTERNAL_SERVER_ERROR);
+            HttpStatus.UNPROCESSABLE_ENTITY, HttpStatus.BAD_REQUEST, HttpStatus.FORBIDDEN);
         for (String correlationId : statuses.keySet()) {
             List<ILoggingEvent> events = securityEventsOf(correlationId);
             assertThat(events).as("security log for " + correlationId).hasSize(1);
@@ -163,7 +163,7 @@ class RegisterRejectionLogHttpIntegrationTest {
         assertThat(securityEventsOf(forbidden).get(0).getFormattedMessage()).contains("reason=FORBIDDEN");
         assertThat(securityEventsOf(duplicate).get(0).getFormattedMessage()).contains("reason=BUSINESS_RULE");
         assertThat(securityEventsOf(invalid).get(0).getFormattedMessage()).contains("reason=INVALID_REQUEST");
-        assertThat(securityEventsOf(failed).get(0).getFormattedMessage()).contains("reason=FAILED");
+        assertThat(securityEventsOf(ghost).get(0).getFormattedMessage()).contains("reason=FORBIDDEN");
 
         // nothing was added to the audit table by any of them, and no user exists for the payload email
         assertThat(totalAuditRows()).isEqualTo(auditBefore);

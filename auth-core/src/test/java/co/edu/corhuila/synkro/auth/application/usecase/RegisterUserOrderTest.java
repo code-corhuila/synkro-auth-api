@@ -60,8 +60,8 @@ class RegisterUserOrderTest {
     }
 
     @Test
-    @Tag("AUTH-REG-03")
-    void case10_aRefusedReplayOfAKnownKey_neverReachesTheIdempotencyLookup() {
+    @Tag("AUTH-REG-02")
+    void ordering_aRefusedReplayOfAKnownKey_neverReachesTheIdempotencyLookup() {
         register.execute(ADMIN_CALLER, CORRELATION_ID, command());
         store.keyLookups.set(0);
         store.emailLookups.set(0);
@@ -78,8 +78,8 @@ class RegisterUserOrderTest {
     }
 
     @Test
-    @Tag("AUTH-REG-03")
-    void case10b_aRefusedCallerIsRefusedBeforeItsRequestIsValidated() {
+    @Tag("AUTH-REG-02")
+    void ordering_aRefusedCallerIsRefusedBeforeItsRequestIsValidated() {
         RegisterUserCommand invalid = new RegisterUserCommand("short", "", "nope", "short", "SERVICE");
 
         assertThatThrownBy(() -> register.execute(caller(Roles.SALESPERSON), CORRELATION_ID, invalid))
@@ -88,7 +88,7 @@ class RegisterUserOrderTest {
 
     @Test
     @Tag("AUTH-REG-03")
-    void case11_anAuthorizedReplay_returnsTheSameUser_andRegistersNothingNew() {
+    void replay_anAuthorizedReplay_returnsTheSameUser_andRegistersNothingNew() {
         RegisterUserResult first = register.execute(ADMIN_CALLER, CORRELATION_ID, command());
 
         RegisterUserResult replay = register.execute(ADMIN_CALLER, "corr-0002", command());
@@ -100,7 +100,7 @@ class RegisterUserOrderTest {
 
     @Test
     @Tag("AUTH-REG-03")
-    void case12_aDuplicateEmailWithANewKey_isABusinessRuleViolation_andRegistersNothing() {
+    void duplicateEmail_aDuplicateEmailWithANewKey_isABusinessRuleViolation_andRegistersNothing() {
         register.execute(ADMIN_CALLER, CORRELATION_ID, command());
         RegisterUserCommand sameEmail = new RegisterUserCommand("key-0002-abcd", "Other", "ana@synkro.test", "another-password", "ADMIN");
 
@@ -113,7 +113,7 @@ class RegisterUserOrderTest {
 
     @Test
     @Tag("AUTH-REG-03")
-    void case13_serviceAsTheRoleToCreate_isRejectedByTheInputRules_andWritesNothing() {
+    void serviceRole_serviceAsTheRoleToCreate_isRejectedByTheInputRules_andWritesNothing() {
         RegisterUserCommand serviceUser = new RegisterUserCommand(KEY, "Svc", "svc@synkro.test", "a-long-password", "SERVICE");
 
         assertThatThrownBy(() -> register.execute(ADMIN_CALLER, CORRELATION_ID, serviceUser))

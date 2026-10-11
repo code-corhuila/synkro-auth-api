@@ -13,9 +13,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Repository over auth_schema.system_user and auth_schema.idempotency_key. The user and its key are
- * written in one transaction, started here so the use case stays free of Spring. Rows are never
- * deleted: the service user has no DELETE, and a failed registration is undone by the rollback.
+ * Repository over auth_schema.system_user, auth_schema.idempotency_key and auth_schema.user_creation_audit.
+ * The user, its key and its audit row are written in one transaction on one connection, started here so the use
+ * case stays free of Spring. Rows are never deleted: the service user has no DELETE, and a failed registration
+ * is undone by the rollback.
  */
 public class JdbcUserRegistrationStore implements UserRegistrationStore {
 
@@ -37,6 +38,13 @@ public class JdbcUserRegistrationStore implements UserRegistrationStore {
     private static final String INSERT_USER =
         "INSERT INTO auth_schema.system_user (user_id, name, email, password_hash, role, registration_date, active) "
             + "VALUES (?, ?, ?, ?, ?, ?, ?)";
+
+    // Audit content is fixed by the migration (V014): an ordinary registration is always an ADMIN acting, and the
+    // table only ever holds successes. audit_id has no default, so it comes from the attribution.
+    private static final String INSERT_AUDIT =
+        "INSERT INTO auth_schema.user_creation_audit "
+            + "(audit_id, operation, actor_kind, actor_user_id, created_user_id, outcome, occurred_at, correlation_id) "
+            + "VALUES (?, 'USER_REGISTERED', 'ADMIN', ?, ?, 'SUCCESS', ?, ?)";
 
     private final JdbcTemplate jdbc;
     private final TransactionOperations transactions;
@@ -60,6 +68,7 @@ public class JdbcUserRegistrationStore implements UserRegistrationStore {
                 return new Registered(original, false);
             }
             insert(user);
+            insertAudit(user, attribution);
             return new Registered(user, true);
         });
     }
@@ -75,6 +84,12 @@ public class JdbcUserRegistrationStore implements UserRegistrationStore {
             }
             throw e;
         }
+    }
+
+    private void insertAudit(SystemUser user, CreationAttribution attribution) {
+        jdbc.update(INSERT_AUDIT, UUID.fromString(attribution.auditId()), UUID.fromString(attribution.actorUserId()),
+            UUID.fromString(user.getUserId()), OffsetDateTime.ofInstant(attribution.occurredAt(), ZoneOffset.UTC),
+            attribution.correlationId());
     }
 
     private static boolean violatesUniqueEmail(Throwable failure) {

@@ -250,7 +250,7 @@ class RegisterAdminOnlyHttpIntegrationTest {
         assertThat(audit.get("operator_identity")).isNull();
         assertThat(audit.get("outcome")).isEqualTo("SUCCESS");
         assertThat(audit.get("correlation_id")).isEqualTo(correlation);
-        assertThat(((java.time.OffsetDateTime) audit.get("occurred_at")).toInstant())
+        assertThat(((java.sql.Timestamp) audit.get("occurred_at")).toInstant())
             .isBetween(Instant.now().minusSeconds(60), Instant.now().plusSeconds(5));
     }
 

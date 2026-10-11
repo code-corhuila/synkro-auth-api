@@ -97,7 +97,7 @@ class JdbcUserRegistrationAuditIntegrationTest {
         assertThat(audit.get("operator_identity")).isNull();
         assertThat(audit.get("created_user_id")).isEqualTo(user.getUserId());
         assertThat(audit.get("outcome")).isEqualTo("SUCCESS");
-        assertThat(((java.time.OffsetDateTime) audit.get("occurred_at")).toInstant()).isEqualTo(attribution.occurredAt());
+        assertThat(((java.sql.Timestamp) audit.get("occurred_at")).toInstant()).isEqualTo(attribution.occurredAt());
         assertThat(audit.get("correlation_id")).isEqualTo(attribution.correlationId());
     }
 

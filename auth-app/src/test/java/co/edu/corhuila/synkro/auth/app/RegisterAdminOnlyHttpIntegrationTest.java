@@ -6,6 +6,8 @@ import io.jsonwebtoken.Jwts;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -160,5 +162,54 @@ class RegisterAdminOnlyHttpIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(rows()).isEqualTo(before);
+    }
+
+    // ── AUTH-REG-02: authorization ───────────────────────────────────
+
+    private String tokenOf(String role) {
+        String subject = "SERVICE".equals(role) ? "synkro-workflow" : seededUser(role);
+        return bearer(tokenFor(KEYS, subject, role, Instant.now().plusSeconds(300)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SALESPERSON", "INVENTORY"})
+    @Tag("AUTH-REG-02")
+    void case6and7_aValidTokenForAnotherHumanRole_is403_andWritesNothing(String role) throws Exception {
+        String token = tokenOf(role);
+        String email = DatabaseTestSupport.uniqueEmail();
+        Rows before = rows();
+
+        ResponseEntity<String> response = register(request(email, "SALESPERSON"), newKey(), token);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(body(response).get("error").asText()).isEqualTo("FORBIDDEN");
+        assertThat(response.getBody()).doesNotContain(email).doesNotContain("userId");
+        assertThat(rows()).isEqualTo(before);
+    }
+
+    @Test
+    @Tag("AUTH-REG-02")
+    void case8_aServiceToken_is403_evenWithAKeyThatAlreadyCreatedAUser_andTheUserIsNotDisclosed() throws Exception {
+        String email = DatabaseTestSupport.uniqueEmail();
+        String key = newKey();
+        ResponseEntity<String> created = register(request(email, "SALESPERSON"), key, tokenOf("ADMIN"));
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String userId = body(created).get("userId").asText();
+        Rows before = rows();
+
+        ResponseEntity<String> replay = register(request(email, "SALESPERSON"), key, tokenOf("SERVICE"));
+
+        assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(replay.getBody()).doesNotContain(email).doesNotContain(userId);
+        assertThat(replay.getHeaders().getLocation()).isNull();
+        assertThat(rows()).isEqualTo(before);
+    }
+
+    @Test
+    @Tag("AUTH-REG-02")
+    void case9_anAdminToken_proceedsPastAuthorization() {
+        ResponseEntity<String> response = register(request(DatabaseTestSupport.uniqueEmail(), "SALESPERSON"), newKey(), tokenOf("ADMIN"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
     }
 }

@@ -9,7 +9,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.ADMIN_CALLER;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.CLOCK;
+import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.CORRELATION_ID;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.NOW;
 import static co.edu.corhuila.synkro.auth.application.usecase.Fakes.PASSWORD_HASHER;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,14 +42,14 @@ class RegisterUserUseCaseTest {
     }
 
     private Problem problemOf(RegisterUserCommand command) {
-        Throwable thrown = catchThrowable(() -> register.execute(command));
+        Throwable thrown = catchThrowable(() -> register.execute(ADMIN_CALLER, CORRELATION_ID, command));
         assertThat(thrown).isInstanceOf(ValidationException.class);
         return ((ValidationException) thrown).problems().get(0);
     }
 
     @Test
     void registeringANewEmail_returnsTheCreatedUserWithItsRole() {
-        RegisterUserResult result = register.execute(valid());
+        RegisterUserResult result = register.execute(ADMIN_CALLER, CORRELATION_ID, valid());
 
         assertThat(result.created()).isTrue();
         assertThat(result.user().getUserId()).isEqualTo("user-1");
@@ -60,7 +62,7 @@ class RegisterUserUseCaseTest {
 
     @Test
     void theStoredHashIsNotThePassword_andItVerifies() {
-        register.execute(valid());
+        register.execute(ADMIN_CALLER, CORRELATION_ID, valid());
 
         String stored = store.byEmail.get("ana@synkro.test").getPasswordHash();
         assertThat(stored).isNotEqualTo("a-long-password");
@@ -69,7 +71,7 @@ class RegisterUserUseCaseTest {
 
     @Test
     void theIdempotencyRecordIsSavedWithTheUser() {
-        RegisterUserResult result = register.execute(valid());
+        RegisterUserResult result = register.execute(ADMIN_CALLER, CORRELATION_ID, valid());
 
         assertThat(store.byKey).containsOnlyKeys(KEY);
         assertThat(store.byKey.get(KEY).getUserId()).isEqualTo(result.user().getUserId());
@@ -77,24 +79,24 @@ class RegisterUserUseCaseTest {
 
     @Test
     void anExistingEmailWithANewKey_isABusinessRuleViolationNamingEmail() {
-        register.execute(valid());
+        register.execute(ADMIN_CALLER, CORRELATION_ID, valid());
 
-        assertThatThrownBy(() -> register.execute(command("key-0002-abcd", "Other", "ana@synkro.test", "another-password", "ADMIN")))
+        assertThatThrownBy(() -> register.execute(ADMIN_CALLER, CORRELATION_ID, command("key-0002-abcd", "Other", "ana@synkro.test", "another-password", "ADMIN")))
             .isInstanceOfSatisfying(BusinessRuleViolationException.class, e -> assertThat(e.field()).isEqualTo("email"));
         assertThat(store.byKey).containsOnlyKeys(KEY);
     }
 
     @Test
     void aSpellingOfAnExistingEmailThatOnlyDiffersInCaseOrSpaces_isTheSameEmail() {
-        register.execute(valid());
+        register.execute(ADMIN_CALLER, CORRELATION_ID, valid());
 
-        assertThatThrownBy(() -> register.execute(command("key-0002-abcd", "Other", "  ANA@Synkro.Test ", "another-password", "ADMIN")))
+        assertThatThrownBy(() -> register.execute(ADMIN_CALLER, CORRELATION_ID, command("key-0002-abcd", "Other", "  ANA@Synkro.Test ", "another-password", "ADMIN")))
             .isInstanceOf(BusinessRuleViolationException.class);
     }
 
     @Test
     void theEmailIsStoredTrimmedAndLowercase() {
-        RegisterUserResult result = register.execute(command(KEY, "Ana", "  Ana.Perez@Synkro.TEST ", "a-long-password", "ADMIN"));
+        RegisterUserResult result = register.execute(ADMIN_CALLER, CORRELATION_ID, command(KEY, "Ana", "  Ana.Perez@Synkro.TEST ", "a-long-password", "ADMIN"));
 
         assertThat(result.user().getEmail()).isEqualTo("ana.perez@synkro.test");
     }
@@ -123,7 +125,7 @@ class RegisterUserUseCaseTest {
     @Test
     void anEmailOf256Characters_isRejected_andOf255IsAccepted() {
         String local = "a".repeat(255 - "@synkro.test".length());
-        assertThat(register.execute(command(KEY, "Ana", local + "@synkro.test", "a-long-password", "ADMIN")).created()).isTrue();
+        assertThat(register.execute(ADMIN_CALLER, CORRELATION_ID, command(KEY, "Ana", local + "@synkro.test", "a-long-password", "ADMIN")).created()).isTrue();
 
         assertThat(problemOf(command("key-0002-abcd", "Ana", "a" + local + "@synkro.test", "a-long-password", "ADMIN")).field())
             .isEqualTo("email");
@@ -136,7 +138,7 @@ class RegisterUserUseCaseTest {
 
     @Test
     void aNameOf151Characters_isRejected_andOf150IsAccepted() {
-        assertThat(register.execute(command(KEY, "n".repeat(150), "ana@synkro.test", "a-long-password", "ADMIN")).created()).isTrue();
+        assertThat(register.execute(ADMIN_CALLER, CORRELATION_ID, command(KEY, "n".repeat(150), "ana@synkro.test", "a-long-password", "ADMIN")).created()).isTrue();
 
         assertThat(problemOf(command("key-0002-abcd", "n".repeat(151), "b@synkro.test", "a-long-password", "ADMIN")).field())
             .isEqualTo("name");
@@ -152,13 +154,13 @@ class RegisterUserUseCaseTest {
     void aPasswordOf7Characters_isRejected_andOf8IsAccepted() {
         assertThat(problemOf(command(KEY, "Ana", "ana@synkro.test", "1234567", "ADMIN")).field()).isEqualTo("password");
 
-        assertThat(register.execute(command(KEY, "Ana", "ana@synkro.test", "12345678", "ADMIN")).created()).isTrue();
+        assertThat(register.execute(ADMIN_CALLER, CORRELATION_ID, command(KEY, "Ana", "ana@synkro.test", "12345678", "ADMIN")).created()).isTrue();
     }
 
     @Test
     void aPasswordLongerThanBcryptCanUse_isRejected_insteadOfBeingSilentlyTruncated() {
         assertThat(problemOf(command(KEY, "Ana", "ana@synkro.test", "p".repeat(73), "ADMIN")).field()).isEqualTo("password");
-        assertThat(register.execute(command(KEY, "Ana", "ana@synkro.test", "p".repeat(72), "ADMIN")).created()).isTrue();
+        assertThat(register.execute(ADMIN_CALLER, CORRELATION_ID, command(KEY, "Ana", "ana@synkro.test", "p".repeat(72), "ADMIN")).created()).isTrue();
     }
 
     @Test
@@ -180,13 +182,13 @@ class RegisterUserUseCaseTest {
 
     @Test
     void keysOfExactlyEightAnd128Characters_areAccepted() {
-        assertThat(register.execute(command("k".repeat(8), "Ana", "ana@synkro.test", "a-long-password", "ADMIN")).created()).isTrue();
-        assertThat(register.execute(command("k".repeat(128), "Bo", "bo@synkro.test", "a-long-password", "ADMIN")).created()).isTrue();
+        assertThat(register.execute(ADMIN_CALLER, CORRELATION_ID, command("k".repeat(8), "Ana", "ana@synkro.test", "a-long-password", "ADMIN")).created()).isTrue();
+        assertThat(register.execute(ADMIN_CALLER, CORRELATION_ID, command("k".repeat(128), "Bo", "bo@synkro.test", "a-long-password", "ADMIN")).created()).isTrue();
     }
 
     @Test
     void everyInvalidFieldIsReportedAtOnce() {
-        Throwable thrown = catchThrowable(() -> register.execute(command("short", "", "nope", "short", "SERVICE")));
+        Throwable thrown = catchThrowable(() -> register.execute(ADMIN_CALLER, CORRELATION_ID, command("short", "", "nope", "short", "SERVICE")));
 
         assertThat(((ValidationException) thrown).problems()).extracting(Problem::field)
             .containsExactlyInAnyOrder("Idempotency-Key", "name", "email", "password", "role");

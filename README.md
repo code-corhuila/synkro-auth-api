@@ -156,6 +156,17 @@ adapter (the token's claims, never the body or an `X-User-*` header) and refuses
 use case is called without the HTTP layer or a gateway in front of it:
 
 - no valid token: `401`; a `SALESPERSON` or `INVENTORY` token: `403`;
+- a human token (any role other than `SERVICE`) whose `sub` is not a UUID in its canonical form (36 characters,
+  with dashes) is not a valid identity: `401`, on every protected route. A human is identified by a user id, so the
+  HTTP adapter, which owns authentication, refuses anything else before a use case runs. Login and refresh stay
+  public, and an invalid `Authorization` header on them is still ignored. A `SERVICE` token is identified by its
+  service name and is not held to that rule;
+- a well-formed `ADMIN` token whose user does not exist is `403` with a generic message, decided in the use case
+  before the request is validated and before the key or the email is read: a token alone does not prove that the
+  account is there, and a refusal must not reveal what the key produced. A database that cannot answer that lookup
+  is a `500`, never a `403`: an unreachable store is not an absent administrator. The identity and the role still
+  come from the validated token, so this check does not revoke anything: a deactivated or demoted administrator
+  keeps working until the token expires, and that policy is not changed here;
 - a `SERVICE` token is always `403`, even for an `Idempotency-Key` that already created a user;
 - authorization is decided **before** the request is validated and **before** the idempotency key is looked up, so a
   refused caller cannot learn whether a key already produced a user: a refused replay gets the same `403` as a first attempt.
@@ -169,6 +180,12 @@ token), the created user's id, the UTC time, `outcome = SUCCESS` and the request
 
 - First request: `201`. The same key with the same request again: `200` with the same user, nothing created and no
   second audit row (N identical authorized replays leave exactly one).
+- **Limit of the actor check.** The existence check and the insert are two steps. `auth_app` has no `DELETE`, and the
+  audit foreign keys are `ON DELETE RESTRICT`, so a user that an audit row already names cannot be deleted. An
+  administrator who has not yet created anyone could still be removed by a privileged intervention between the check
+  and the insert. The foreign key on the audit row's creator is the final protection: the transaction fails as a
+  `500` and the user and the key roll back with it, so nothing is created without its audit row. No lock is added
+  for that exceptional case.
 - The same key with a **different** request: `422 BUSINESS_RULE_VIOLATION` on `Idempotency-Key`. The table keeps no
   fingerprint of the request, so the service compares it with the user the key created (name, email, role and, with
   bcrypt, the password). A key is only an answer to the request that made it: replaying someone else's key must not

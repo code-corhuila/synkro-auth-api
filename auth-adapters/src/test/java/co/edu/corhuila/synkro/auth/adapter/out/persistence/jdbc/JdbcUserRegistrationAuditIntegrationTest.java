@@ -76,7 +76,7 @@ class JdbcUserRegistrationAuditIntegrationTest {
 
     @Test
     @Tag("AUTH-REG-04")
-    void case14_theFirstCreate_leavesTheUser_theKey_andOneUserRegisteredAuditRow() {
+    void atomicity_theFirstCreate_leavesTheUser_theKey_andOneUserRegisteredAuditRow() {
         String key = newKey();
         SystemUser user = newUser(PostgresTestDatabase.uniqueEmail());
         CreationAttribution attribution = attribution(actorId, "corr-" + UUID.randomUUID());
@@ -105,7 +105,7 @@ class JdbcUserRegistrationAuditIntegrationTest {
 
     @Test
     @Tag("AUTH-REG-04")
-    void case11_replayingTheSameKey_writesNoSecondAuditRow() {
+    void replay_replayingTheSameKey_writesNoSecondAuditRow() {
         String key = newKey();
         SystemUser user = newUser(PostgresTestDatabase.uniqueEmail());
         store.registerUserWithAttribution(key, user, attribution(actorId, "corr-first"));
@@ -124,7 +124,7 @@ class JdbcUserRegistrationAuditIntegrationTest {
 
     @Test
     @Tag("AUTH-REG-04")
-    void case15_anAuditWriteThatFails_rollsBackTheUserAndTheKeyToo() {
+    void rollback_anAuditWriteThatFails_rollsBackTheUserAndTheKeyToo() {
         String key = newKey();
         SystemUser user = newUser(PostgresTestDatabase.uniqueEmail());
         // The audit row is the last write and names a creator that does not exist, so its foreign key fails.
@@ -139,7 +139,7 @@ class JdbcUserRegistrationAuditIntegrationTest {
 
     @Test
     @Tag("AUTH-REG-04")
-    void case15b_anAuditRowThatBreaksItsOwnConstraint_rollsBackTheUserAndTheKeyToo() {
+    void rollback_anAuditRowThatBreaksItsOwnConstraint_rollsBackTheUserAndTheKeyToo() {
         String key = newKey();
         SystemUser user = newUser(PostgresTestDatabase.uniqueEmail());
         CreationAttribution noCorrelation = attribution(actorId, "");
@@ -153,7 +153,7 @@ class JdbcUserRegistrationAuditIntegrationTest {
 
     @Test
     @Tag("AUTH-REG-04")
-    void case15c_aDuplicateEmail_leavesNoKeyAndNoAuditRow() {
+    void rollback_aDuplicateEmail_leavesNoKeyAndNoAuditRow() {
         SystemUser first = newUser(PostgresTestDatabase.uniqueEmail());
         store.registerUserWithAttribution(newKey(), first, attribution(actorId, "corr-first"));
         String secondKey = newKey();
@@ -197,7 +197,7 @@ class JdbcUserRegistrationAuditIntegrationTest {
 
     @Test
     @Tag("AUTH-REG-04")
-    void case16_concurrentRequestsWithTheSameKey_createOneUser_andWriteExactlyOneAuditRow() throws Exception {
+    void concurrency_concurrentRequestsWithTheSameKey_createOneUser_andWriteExactlyOneAuditRow() throws Exception {
         for (int round = 0; round < 10; round++) {
             String key = newKey();
             String email = PostgresTestDatabase.uniqueEmail();
@@ -218,5 +218,27 @@ class JdbcUserRegistrationAuditIntegrationTest {
             assertThat(keysNamed(key)).isEqualTo(1);
             assertThat(auditRowsOf(winnerId)).isEqualTo(1);
         }
+    }
+
+    // ── AUTH-AUDIT-01 (support): what auth_app can do to the audit table ─
+
+    @Test
+    @Tag("AUTH-AUDIT-01")
+    void theServiceRoleCanOnlyInsertAndReadAuditRows_neverChangeOrRemoveThem() {
+        for (String privilege : List.of("INSERT", "SELECT")) {
+            assertThat(jdbc.queryForObject("SELECT has_table_privilege('auth_app', 'auth_schema.user_creation_audit', ?)", Boolean.class, privilege))
+                .as(privilege).isTrue();
+        }
+        for (String privilege : List.of("UPDATE", "DELETE", "TRUNCATE")) {
+            assertThat(jdbc.queryForObject("SELECT has_table_privilege('auth_app', 'auth_schema.user_creation_audit', ?)", Boolean.class, privilege))
+                .as(privilege).isFalse();
+        }
+        SystemUser user = newUser(PostgresTestDatabase.uniqueEmail());
+        store.registerUserWithAttribution(newKey(), user, attribution(actorId, "corr-privileges"));
+        assertThatThrownBy(() -> jdbc.update("UPDATE auth_schema.user_creation_audit SET correlation_id = 'x' WHERE created_user_id = ?::uuid", user.getUserId()))
+            .rootCause().hasMessageContaining("permission denied");
+        assertThatThrownBy(() -> jdbc.update("DELETE FROM auth_schema.user_creation_audit WHERE created_user_id = ?::uuid", user.getUserId()))
+            .rootCause().hasMessageContaining("permission denied");
+        assertThat(auditRowsOf(user.getUserId())).isEqualTo(1);
     }
 }

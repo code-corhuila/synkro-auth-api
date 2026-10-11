@@ -42,7 +42,7 @@ class RegisterUserAuthorizationTest {
     @ParameterizedTest
     @ValueSource(strings = {Roles.SALESPERSON, Roles.INVENTORY})
     @Tag("AUTH-REG-02")
-    void case6and7_aHumanThatIsNotAnAdmin_isForbidden_andWritesNothing(String role) {
+    void forbidden_aHumanThatIsNotAnAdmin_isForbidden_andWritesNothing(String role) {
         assertThatThrownBy(() -> register.execute(caller(role), CORRELATION_ID, command()))
             .isInstanceOf(ForbiddenException.class);
 
@@ -53,7 +53,7 @@ class RegisterUserAuthorizationTest {
 
     @Test
     @Tag("AUTH-REG-02")
-    void case8_aServiceIsForbidden_evenWithAKeyThatAlreadyCreatedAUser_andDisclosesNothing() {
+    void forbidden_aServiceIsForbidden_evenWithAKeyThatAlreadyCreatedAUser_andDisclosesNothing() {
         register.execute(ADMIN_CALLER, CORRELATION_ID, command());
 
         assertThatThrownBy(() -> register.execute(caller(Roles.SERVICE), CORRELATION_ID, command()))
@@ -65,7 +65,7 @@ class RegisterUserAuthorizationTest {
 
     @Test
     @Tag("AUTH-REG-02")
-    void case8b_aCallerThatCarriesBothAdminAndServiceIsStillAService() {
+    void forbidden_aCallerThatCarriesBothAdminAndServiceIsStillAService() {
         AuthenticatedCaller both = new AuthenticatedCaller("synkro-workflow", Set.of(Roles.ADMIN, Roles.SERVICE), Set.of());
 
         assertThatThrownBy(() -> register.execute(both, CORRELATION_ID, command())).isInstanceOf(ForbiddenException.class);
@@ -75,7 +75,7 @@ class RegisterUserAuthorizationTest {
 
     @Test
     @Tag("AUTH-REG-02")
-    void case9_anAdmin_proceedsPastAuthorization() {
+    void authorized_anAdmin_proceedsPastAuthorization() {
         RegisterUserResult result = register.execute(ADMIN_CALLER, CORRELATION_ID, command());
 
         assertThat(result.created()).isTrue();

@@ -20,6 +20,14 @@ class FakeUserRegistrationStore implements UserRegistrationStore, UserRepository
     final Map<String, CreationAttribution> attributions = new LinkedHashMap<>();
     int registerCalls;
 
+    /** Users that exist without having been registered here: the fixture administrator is one of them. */
+    final Map<String, SystemUser> actors = new LinkedHashMap<>();
+
+    FakeUserRegistrationStore() {
+        actors.put(Fakes.ADMIN_CALLER.subject(),
+            new SystemUser(Fakes.ADMIN_CALLER.subject(), "Fixture Admin", "fixture-admin@synkro.test", "hashed:x", "ADMIN", Fakes.NOW, true));
+    }
+
     @Override
     public Optional<SystemUser> findByIdempotencyKey(String idempotencyKey) {
         return Optional.ofNullable(byKey.get(idempotencyKey));
@@ -48,6 +56,7 @@ class FakeUserRegistrationStore implements UserRegistrationStore, UserRepository
 
     @Override
     public Optional<SystemUser> findById(String userId) {
-        return byEmail.values().stream().filter(u -> u.getUserId().equals(userId)).findFirst();
+        Optional<SystemUser> registered = byEmail.values().stream().filter(u -> u.getUserId().equals(userId)).findFirst();
+        return registered.isPresent() ? registered : Optional.ofNullable(actors.get(userId));
     }
 }

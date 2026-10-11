@@ -100,7 +100,7 @@ needs it while it is down answers `500 INTERNAL_ERROR` in the common error envel
 credential in the body or in the log.
 
 Rows are never deleted: `auth_app` has no `DELETE` privilege and no code path issues one. A refresh token is
-stored as a SHA-256 hash with an `expiration_date` seven days ahead; rotating it marks the row
+stored as a SHA-256 hash with an `expiration_date` seven days ahead; rotating, logging out or revoking it marks the row
 `active = false`. A user with `active = false` cannot log in, and gets the same `401` as a wrong password.
 
 ### The first local user
@@ -130,7 +130,7 @@ curl -s -X POST http://localhost:8080/api/v1/auth/refresh \
   -H 'Content-Type: application/json' -d '{"refreshToken":"<refreshToken from login>"}'
 ```
 
-A refresh token works once: using it returns a new pair and invalidates the old token, so replaying it is a `401`.
+A refresh token works once: using it returns a new pair and invalidates the old token. Replaying it is a `401` and revokes every refresh token of that user (see [Sessions](#sessions-logout-and-refresh-token-reuse)).
 
 ## Users: register and lookup
 
@@ -195,6 +195,45 @@ curl -s -X POST http://localhost:8080/api/v1/auth/register \
 curl -s http://localhost:8080/api/v1/auth/users/<userId> -H "Authorization: Bearer <ADMIN access token>"
 ```
 
+## Sessions: logout and refresh-token reuse
+
+| Endpoint | Who | Success |
+|---|---|---|
+| `POST /api/v1/auth/logout` | Any valid access token of `ADMIN`, `SALESPERSON` or `INVENTORY`; a `SERVICE` token gets `403`, decided in `LogoutUseCase` with `RoleGuard`. No token: `401` | `200 { "loggedOut": true }` |
+
+The body is `{ "refreshToken": "<opaque token>" }`; a missing, empty or blank value is `400 VALIDATION_ERROR` with `refreshToken` in `details`.
+
+**Logout is idempotent and does not leak.** It revokes the refresh token (`active = false`) only if it belongs to the caller, is still
+active and has not expired. In every other case (unknown, expired, already used, already revoked, or **someone else's token**) it answers
+the same `200` and changes nothing, so the response never says whether a token exists or whose it is. The access token is **not
+revocable**: it stays valid until it expires, at most one hour after it was issued.
+
+**Reuse detection.** A refresh token works once. Presenting one that was already rotated and has not expired answers `401`
+and revokes **every active refresh token of its owner**, including the one the legitimate rotation issued; the user logs in again with
+their password. A rotated token that has also expired, and an unknown token, are a plain `401` with no revocation. Only that user's rows
+change, and no row is ever deleted (`auth_app` has no `DELETE`): revoking is `active = false`.
+
+The revocation has to survive the `401`. `JdbcRefreshTokenStore` runs it in its own transaction (`PROPAGATION_REQUIRES_NEW`), started by
+the adapter so `auth-core` keeps no Spring dependency, so it is committed even if the call that detected the reuse ends in an exception
+or runs inside a transaction that rolls back. Neither a token nor its hash is ever returned or logged.
+
+Two behaviors are accepted on purpose, because `refresh_token` has no column to tell the cases apart (`active = false` is all it
+records, not whether a row was rotated, logged out or revoked, nor when):
+
+- **A double submit looks like a reuse.** Two concurrent refreshes with the same token (a retry, a double click): one wins and gets a new
+  pair; the other finds the token already used and revokes the owner's tokens, normally including the winner's new one. The user
+  logs in again. A grace period would need a "used at" timestamp that the table does not have. The winner's new token can survive only if
+  the loser's revocation lands in the few milliseconds before the winner stores it; that window exists and was not observed in testing.
+- **A logged-out token presented to `refresh` also looks like a reuse.** It answers `401` and revokes every session of that user. Clients
+  must drop the refresh token when they log out and never send it again.
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/auth/logout \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer <access token>" \
+  -d '{"refreshToken":"<refreshToken from login>"}'
+# 200 {"loggedOut":true}
+```
+
 ## Token validation
 
 Every request except the public routes must carry `Authorization: Bearer <access token>`. The service
@@ -218,7 +257,7 @@ the common error envelope `{ error, message, details?, traceId }`, where `traceI
 
 **Public routes** (no token needed): `GET /health`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh` and
 `POST /api/v1/auth/register`. Only those methods are public: a wrong method on them without a token is a `401`.
-Everything else requires a valid token. An invalid `Authorization` header on a public route is ignored, so an
+Everything else requires a valid token. That includes `POST /api/v1/auth/logout`. An invalid `Authorization` header on a public route is ignored, so an
 expired access token never blocks `refresh`.
 
 The caller can carry the token-only role `SERVICE` (service tokens, later story); a use case that must refuse

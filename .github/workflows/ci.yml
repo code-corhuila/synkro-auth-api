@@ -1,5 +1,8 @@
 name: ci
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [develop, qa, main]
@@ -8,6 +11,7 @@ on:
 
 jobs:
   check-common-files:
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,6 +26,7 @@ jobs:
           echo "Common files present."
 
   build-test-and-architecture-check:
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,6 +53,7 @@ jobs:
           echo "Architecture check passed: auth-core has no Spring dependency."
 
   integration-tests:
+    timeout-minutes: 45
     # Runs the whole build against a real PostgreSQL 16 whose schema is built, by the pinned
     # Flyway image, from synkro-auth-db: the same migrations that create the tables in
     # production, so there is no copy of the SQL in this repository to drift.
@@ -141,12 +147,30 @@ jobs:
               exit 1
             fi
           done
+          # Initial-administrator audit (HU-AUTH-14) needs the operator columns that V014 adds, and the grants of V017.
+          column=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d postgres -tAc \
+            "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'auth_schema' AND table_name = 'user_creation_audit' AND column_name = 'operator_identity';")
+          if [ "$column" != "1" ]; then
+            echo "::error::auth_schema.user_creation_audit.operator_identity is missing: AUTH_DB_REF ($AUTH_DB_REF) predates V014"
+            exit 1
+          fi
+          grants=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d postgres -tAc \
+            "SELECT has_table_privilege('auth_app', 'auth_schema.user_creation_audit', 'INSERT')::text || has_table_privilege('auth_app', 'auth_schema.user_creation_audit', 'UPDATE')::text;")
+          if [ "$grants" != "truefalse" ]; then
+            echo "::error::auth_app must be able to INSERT but not UPDATE auth_schema.user_creation_audit (got: $grants)"
+            exit 1
+          fi
 
       - name: Build and test with the database
+        # The initial-administrator tests empty auth_schema through the instance administrator, which is safe only
+        # because this job's PostgreSQL service is created for the job and discarded with it.
         env:
           TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/postgres
           TEST_DATABASE_USER: auth_app
           TEST_DATABASE_PASSWORD: ${{ env.AUTH_APP_PASSWORD }}
+          TEST_DATABASE_DISPOSABLE: "true"
+          TEST_ADMIN_DATABASE_USER: postgres
+          TEST_ADMIN_DATABASE_PASSWORD: ci_admin_pw
         run: mvn -B verify
 
       - name: The integration tests ran, none was skipped
@@ -160,3 +184,46 @@ jobs:
             exit 1
           fi
           printf '%s\n' "${reports[@]}"
+          # The initialization suites must be among them, with tests that really executed.
+          for suite in JdbcInitialAdminStoreIntegrationTest InitialAdminCliIntegrationTest; do
+            report=$(find . -path "*/target/surefire-reports/TEST-*.${suite}.xml" | head -n 1)
+            test -n "$report" || { echo "::error::$suite did not run"; exit 1; }
+            grep -Eq 'tests="[1-9][0-9]*"' "$report" || { echo "::error::$suite ran no test"; exit 1; }
+          done
+
+      - name: The packaged initialization command runs without the HTTP server
+        # Runs the built artifact, as an operator would, against this job's disposable database: the first run
+        # creates the administrator, the second is the no-op, and nothing listens on the service port.
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/postgres?currentSchema=auth_schema
+          SPRING_DATASOURCE_USERNAME: auth_app
+          SPRING_DATASOURCE_PASSWORD: ${{ env.AUTH_APP_PASSWORD }}
+          SYNKRO_INIT_OPERATOR: github-actions/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          jar=$(find auth-app/target -maxdepth 1 -name 'auth-app-*.jar' ! -name '*.original' | head -n 1)
+          test -n "$jar"
+          secret=$(mktemp)
+          trap 'rm -f "$secret"' EXIT
+          openssl rand -hex 16 > "$secret"
+          PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c \
+            "TRUNCATE auth_schema.user_creation_audit, auth_schema.refresh_token, auth_schema.service_token, auth_schema.idempotency_key, auth_schema.system_user CASCADE;"
+          initialize() {
+            java -cp "$jar" -Dloader.main=co.edu.corhuila.synkro.auth.app.InitialAdminCli \
+              org.springframework.boot.loader.launch.PropertiesLauncher \
+              --name "CI Admin" --email ci-admin@synkro.test --password-file "$secret" --correlation-id "$1"
+          }
+          first=$(initialize ci-init-1)
+          grep -qx 'result=created' <<< "$first"
+          second=$(initialize ci-init-2)
+          grep -qx 'result=already_initialized' <<< "$second"
+          admins=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d postgres -tAc \
+            "SELECT count(*) FROM auth_schema.system_user WHERE role = 'ADMIN';")
+          audits=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d postgres -tAc \
+            "SELECT count(*) FROM auth_schema.user_creation_audit WHERE operation = 'INITIAL_ADMIN_CREATED' AND operator_identity = 'github-actions/${{ github.run_id }}';")
+          test "$admins" = 1
+          test "$audits" = 1
+          if ss -ltn | grep -qE ':(8080|8000) '; then
+            echo "::error::An HTTP listener is open: the initialization command must not start the server"
+            exit 1
+          fi

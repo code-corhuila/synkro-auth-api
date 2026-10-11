@@ -3,6 +3,7 @@ package co.edu.corhuila.synkro.auth.application.usecase;
 import co.edu.corhuila.synkro.auth.application.port.out.IdGenerator;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore;
+import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore.CreationAttribution;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore.Registered;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
 import co.edu.corhuila.synkro.auth.domain.model.AuthenticatedCaller;
@@ -47,7 +48,9 @@ public class RegisterUserUseCase {
         // PostgreSQL keeps microseconds; truncating here makes the response equal what a later read returns.
         SystemUser user = new SystemUser(ids.newId(), command.name(), email, hasher.hash(command.password()),
             command.role(), clock.instant().truncatedTo(ChronoUnit.MICROS), true);
-        Registered saved = registrations.registerOnce(command.idempotencyKey(), user);
+        CreationAttribution attribution = new CreationAttribution(ids.newId(), caller.subject(),
+            clock.instant().truncatedTo(ChronoUnit.MICROS), correlationId);
+        Registered saved = registrations.registerUserWithAttribution(command.idempotencyKey(), user, attribution);
         return saved.created() ? new RegisterUserResult(saved.user(), true) : replay(command, email, saved.user());
     }
 

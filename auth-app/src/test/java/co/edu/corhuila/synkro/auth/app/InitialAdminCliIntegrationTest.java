@@ -25,7 +25,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * The command end to end on the real auth_schema, with the production wiring (own connection, auth_app, the
  * JDBC store): two executions in a row, the second being the no-op. Initialization needs a database with no ADMIN
  * and auth_app cannot delete, so, like the adapter tests, this empties the disposable schema first through the
- * instance administrator and therefore requires TEST_DATABASE_DISPOSABLE=true.
+ * instance administrator and therefore requires TEST_DATABASE_DISPOSABLE=true and, as proof of which database
+ * this is, TEST_DISPOSABLE_DATABASE_NAME equal to current_database() (see DisposableDatabaseGuard).
  */
 @EnabledIfEnvironmentVariable(named = DatabaseTestSupport.URL_VARIABLE, matches = ".+")
 class InitialAdminCliIntegrationTest {
@@ -46,6 +47,7 @@ class InitialAdminCliIntegrationTest {
         try (Connection c = DriverManager.getConnection(System.getenv(DatabaseTestSupport.URL_VARIABLE),
             System.getenv().getOrDefault("TEST_ADMIN_DATABASE_USER", "postgres"), System.getenv("TEST_ADMIN_DATABASE_PASSWORD"));
              Statement s = c.createStatement()) {
+            DisposableDatabaseGuard.requireDatabase(c, System.getenv(DisposableDatabaseGuard.NAME_VARIABLE));
             s.execute("TRUNCATE auth_schema.user_creation_audit, auth_schema.refresh_token, auth_schema.service_token, "
                 + "auth_schema.idempotency_key, auth_schema.system_user CASCADE");
         }

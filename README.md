@@ -61,13 +61,19 @@ a row, so they can be re-run on the same database.
 The one exception is the initial-administrator tests (`JdbcInitialAdminStoreIntegrationTest`,
 `InitialAdminCliIntegrationTest`): initialization only happens on a database with no `ADMIN`, and `auth_app` cannot
 delete, so each test first **empties `auth_schema`** through the instance administrator. That is destructive, so it
-needs a throwaway database and an explicit opt-in: `TEST_DATABASE_DISPOSABLE=true` plus `TEST_ADMIN_DATABASE_PASSWORD`
-(`TEST_ADMIN_DATABASE_USER` defaults to `postgres`). Without them those tests **fail with an explanation** rather than
-skip, and the command under test still connects only as `auth_app`. Never point them at a shared or persistent database.
+needs a throwaway database, an explicit opt-in and proof of which database it is:
+`TEST_DATABASE_DISPOSABLE=true`, `TEST_ADMIN_DATABASE_PASSWORD` (`TEST_ADMIN_DATABASE_USER` defaults to `postgres`)
+and `TEST_DISPOSABLE_DATABASE_NAME`. Consent and a password do not say *which* database answers, so before the
+`TRUNCATE` the administrative connection asks the server `SELECT current_database()` and the answer must equal
+`TEST_DISPOSABLE_DATABASE_NAME`, a name that must start with `synkro_auth_disposable_` (so `synkro`, `postgres` or
+any shared name is refused). A missing or different name fails the test with an explanation, before anything is
+emptied; the URL is not trusted for this. Without the three settings those tests **fail** rather than skip, and the
+command under test still connects only as `auth_app`. Never point them at a shared or persistent database.
 
 ```bash
-TEST_DATABASE_URL='jdbc:postgresql://localhost:5432/synkro' TEST_DATABASE_PASSWORD='<auth_app password>' \
-TEST_DATABASE_DISPOSABLE=true TEST_ADMIN_DATABASE_PASSWORD='<admin password of the disposable database>' mvn -B verify
+TEST_DATABASE_URL='jdbc:postgresql://localhost:5432/synkro_auth_disposable_local' TEST_DATABASE_PASSWORD='<auth_app password>' \
+TEST_DATABASE_DISPOSABLE=true TEST_DISPOSABLE_DATABASE_NAME=synkro_auth_disposable_local \
+TEST_ADMIN_DATABASE_PASSWORD='<admin password of the disposable database>' mvn -B verify
 ```
 
 `mvn -B verify` also enforces the coverage thresholds of `11-quality/testing-strategy.md` with JaCoCo
@@ -180,9 +186,30 @@ java -cp auth-app.jar \
   --password-file /run/secrets/initial_admin_password
 ```
 
-In a container started from the service image, override the entrypoint with the same arguments
-(`--entrypoint java … -cp /app/auth-app.jar -Dloader.main=… org.springframework.boot.loader.launch.PropertiesLauncher …`)
-and mount the secret files read-only.
+**From the service image.** The image's entrypoint starts the HTTP service, so the command replaces it
+(`--entrypoint java`); the container runs as the image's non-root `synkro` user, the secret files are mounted
+read-only and must be readable by that user, and the container must reach the database (here `--network`):
+
+```bash
+docker run --rm --network <network of the database> \
+  -e SPRING_DATASOURCE_URL='jdbc:postgresql://synkro-db:5432/synkro?currentSchema=auth_schema' \
+  -e SPRING_DATASOURCE_USERNAME=auth_app \
+  -e SPRING_DATASOURCE_PASSWORD_FILE=/run/secrets/auth_app_password \
+  -e SYNKRO_INIT_OPERATOR='deploy-pipeline@release-7' \
+  -v /path/on/host/auth_app_password:/run/secrets/auth_app_password:ro \
+  -v /path/on/host/initial_admin_password:/run/secrets/initial_admin_password:ro \
+  --entrypoint java <service image> \
+  -cp /app/auth-app.jar -Dloader.main=co.edu.corhuila.synkro.auth.app.InitialAdminCli \
+  org.springframework.boot.loader.launch.PropertiesLauncher \
+  --name 'Initial Admin' --email 'admin@example.test' --password-file /run/secrets/initial_admin_password
+```
+
+This exact form (image built from `deploy/Dockerfile`) was run against a disposable PostgreSQL with the real
+`synkro-auth-db` migrations: the first run printed `result=created` (exit `0`), the second
+`result=already_initialized` (exit `0`), both connected as `auth_app`. While the command waited for the lock, the
+only socket its process held was the connection to PostgreSQL: there is no HTTP listener. The container's one
+`LISTEN` row was Docker's embedded DNS resolver at `127.0.0.11`, which no process of the container owns. That
+check is a manual observation, not an automated test (CI checks the host port instead, see the workflow).
 
 | Input | Where | Notes |
 |---|---|---|

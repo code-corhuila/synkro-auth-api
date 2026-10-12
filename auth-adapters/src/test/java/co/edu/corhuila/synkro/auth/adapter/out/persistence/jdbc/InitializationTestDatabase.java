@@ -15,6 +15,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * opt-in (TEST_DATABASE_DISPOSABLE=true) and credentials that exist only for the disposable database; a
  * missing opt-in fails the test, it never silently skips it.
  *
+ * Consent is not identity: before the TRUNCATE the administrative connection must also report, through
+ * current_database(), the exclusive name declared in TEST_DISPOSABLE_DATABASE_NAME (see DisposableDatabaseGuard).
+ *
  * Everything else runs as auth_app, exactly like the command does.
  */
 final class InitializationTestDatabase {
@@ -50,8 +53,13 @@ final class InitializationTestDatabase {
     }
 
     static void reset() throws SQLException {
+        reset(System.getenv(DisposableDatabaseGuard.NAME_VARIABLE));
+    }
+
+    static void reset(String expectedDatabaseName) throws SQLException {
         requireDisposableDatabase();
         try (Connection c = adminConnection(); Statement s = c.createStatement()) {
+            DisposableDatabaseGuard.requireDatabase(c, expectedDatabaseName);
             s.execute("TRUNCATE auth_schema.user_creation_audit, auth_schema.refresh_token, "
                 + "auth_schema.service_token, auth_schema.idempotency_key, auth_schema.system_user CASCADE");
         }

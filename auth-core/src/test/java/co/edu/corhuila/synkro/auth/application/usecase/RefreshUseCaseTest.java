@@ -89,6 +89,23 @@ class RefreshUseCaseTest {
     }
 
     @Test
+    void tokenOfADeactivatedUser_leavesNoUsableTokenBehind() {
+        var refreshForInactive = new RefreshUseCase(users(user("ana@synkro.test", false)), issuer, store, HASH, CLOCK, REFRESH_TTL);
+        store.save(HASH.hash("raw"), "u-1", Fakes.NOW.plusSeconds(60));
+
+        assertThatThrownBy(() -> refreshForInactive.execute("raw")).isInstanceOf(InvalidCredentialsException.class);
+
+        assertThat(store.hashToUser).isEmpty();
+    }
+
+    @Test
+    void rotation_isOneStoreStep_soAnInvalidTokenStoresNoReplacement() {
+        assertThatThrownBy(() -> refresh.execute("never-issued")).isInstanceOf(InvalidCredentialsException.class);
+
+        assertThat(store.hashToUser).isEmpty();
+    }
+
+    @Test
     void reusedToken_isRejected_andRevokesEveryActiveTokenOfItsOwner() {
         LoginResult first = login.execute("ana@synkro.test", PASSWORD);
         LoginResult second = refresh.execute(first.refreshToken());

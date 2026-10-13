@@ -46,3 +46,94 @@ jobs:
             exit 1
           fi
           echo "Architecture check passed: auth-core has no Spring dependency."
+
+  integration-tests:
+    # Runs the whole build against a real PostgreSQL 16 whose schema is built, by the pinned
+    # Flyway image, from synkro-auth-db: the same migrations that create the tables in
+    # production, so there is no copy of the SQL in this repository to drift.
+    runs-on: ubuntu-latest
+    env:
+      # Pinned to a commit so a push to synkro-auth-db cannot turn this repository's CI red
+      # by surprise. Bump it, in a PR, when the service needs a newer schema.
+      AUTH_DB_REF: 827bd394e8c886675bb428e8d73f0a23331218a4
+      # The tag synkro-auth-db's own CI and deploy/compose.yml run.
+      FLYWAY_IMAGE: flyway/flyway:11.20.3-alpine
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: ci_admin_pw
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: code-corhuila/synkro-auth-db
+          ref: ${{ env.AUTH_DB_REF }}
+          path: synkro-auth-db
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+          cache: "maven"
+
+      - name: Create the auth_app login role with a throwaway password
+        # Stands in for the bootstrap script of synkro-infra-postgres (ADR-012), exactly as
+        # synkro-auth-db's CI does. The password exists only for this job and is masked.
+        run: |
+          set -euo pipefail
+          password=$(openssl rand -hex 16)
+          echo "::add-mask::$password"
+          echo "AUTH_APP_PASSWORD=$password" >> "$GITHUB_ENV"
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE auth_app LOGIN PASSWORD '$password';"
+
+      - name: Build the schema from synkro-auth-db
+        # Success alone proves nothing (a wrong location migrates zero files), so count them.
+        run: |
+          set -euo pipefail
+          # The repository is copied in with `docker cp`, not bind-mounted, so this works
+          # whether or not the Docker daemon can see the job's filesystem (act, containers).
+          cid=$(docker create --network host \
+            -e FLYWAY_URL=jdbc:postgresql://localhost:5432/postgres \
+            -e FLYWAY_USER=postgres -e FLYWAY_PASSWORD=ci_admin_pw \
+            "$FLYWAY_IMAGE" -workingDirectory=/workspace -configFiles=flyway.toml migrate)
+          trap 'docker rm -f "$cid" > /dev/null' EXIT
+          docker cp -q synkro-auth-db/. "$cid:/workspace"
+          docker start -a "$cid"
+          test "$(docker inspect -f '{{.State.ExitCode}}' "$cid")" = 0
+          expected=$(find synkro-auth-db/01_ddl synkro-auth-db/02_dml synkro-auth-db/03_dcl synkro-auth-db/04_tcl -name 'V*.sql' | wc -l)
+          applied=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d postgres -tAc \
+            "SELECT count(*) FROM flyway_schema_history WHERE success AND version IS NOT NULL;")
+          echo "V migrations in synkro-auth-db: $expected, applied: $applied"
+          if [ "$expected" -eq 0 ] || [ "$applied" != "$expected" ]; then
+            echo "Applied migrations do not match synkro-auth-db"
+            exit 1
+          fi
+
+      - name: Build and test with the database
+        env:
+          TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/postgres
+          TEST_DATABASE_USER: auth_app
+          TEST_DATABASE_PASSWORD: ${{ env.AUTH_APP_PASSWORD }}
+        run: mvn -B verify
+
+      - name: The integration tests ran, none was skipped
+        # A mistyped variable would skip them all and still pass the build.
+        run: |
+          set -euo pipefail
+          mapfile -t reports < <(find . -path '*/target/surefire-reports/TEST-*IntegrationTest.xml')
+          test "${#reports[@]}" -gt 0
+          if grep -l 'skipped="[1-9]' "${reports[@]}"; then
+            echo "Some integration tests were skipped"
+            exit 1
+          fi
+          printf '%s\n' "${reports[@]}"

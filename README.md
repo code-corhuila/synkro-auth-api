@@ -23,3 +23,24 @@ branch into another: `merge develop -> qa` and `merge qa -> main` do not exist i
 rule.
 
 Full policy: `00-governance/branching-policy.md` in `synkro-docs`.
+
+## Running locally
+
+```bash
+mvn install -DskipTests
+mvn -pl auth-app spring-boot:run
+```
+
+The first command installs `auth-core` and `auth-adapters` into the local Maven repository so
+`auth-app` can resolve them; re-run it after changing either module. The service listens on
+`:8080`. Verify it:
+
+```bash
+curl http://localhost:8080/health
+```
+
+## Running the tests
+
+```bash
+mvn test
+```

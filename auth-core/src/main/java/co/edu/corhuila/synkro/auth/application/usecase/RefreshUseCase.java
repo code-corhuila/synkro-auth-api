@@ -9,6 +9,7 @@ import co.edu.corhuila.synkro.auth.domain.model.SystemUser;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.Optional;
 
 public class RefreshUseCase {
     private final UserRepository userRepository;
@@ -33,9 +34,12 @@ public class RefreshUseCase {
         if (refreshToken == null) {
             throw new InvalidCredentialsException();
         }
-        // Consuming first is what makes a replayed token fail: the old one is gone
-        // before any new token is issued.
-        String userId = switch (refreshTokenStore.consume(hashFunction.hash(refreshToken))) {
+        // The replacement exists before the old token is burned and both change in one store step. Burning first and
+        // saving later would let a reuse detected in between revoke everything except the replacement saved after it.
+        String newRefreshToken = tokenIssuer.issueRefreshToken();
+        String newRefreshTokenHash = hashFunction.hash(newRefreshToken);
+        String userId = switch (refreshTokenStore.rotate(
+            hashFunction.hash(refreshToken), newRefreshTokenHash, clock.instant().plus(refreshTokenTtl))) {
             case Consumption.Consumed consumed -> consumed.userId();
             case Consumption.AlreadyUsed used -> {
                 // A replay means the token was copied (or submitted twice): the safe answer ends every session of its owner.
@@ -45,14 +49,14 @@ public class RefreshUseCase {
             case Consumption.Unknown unknown -> throw new InvalidCredentialsException();
         };
 
-        SystemUser user = userRepository.findById(userId)
-            .filter(SystemUser::isActive)
-            .orElseThrow(InvalidCredentialsException::new);
+        Optional<SystemUser> user = userRepository.findById(userId).filter(SystemUser::isActive);
+        if (user.isEmpty()) {
+            // The owner cannot refresh: the replacement was stored with the rotation and is never handed out, so it must not stay usable.
+            refreshTokenStore.revoke(newRefreshTokenHash, userId);
+            throw new InvalidCredentialsException();
+        }
 
-        String newAccessToken = tokenIssuer.issueAccessToken(user.getUserId(), user.getRole());
-        String newRefreshToken = tokenIssuer.issueRefreshToken();
-        refreshTokenStore.save(hashFunction.hash(newRefreshToken), user.getUserId(), clock.instant().plus(refreshTokenTtl));
-
+        String newAccessToken = tokenIssuer.issueAccessToken(user.get().getUserId(), user.get().getRole());
         return new LoginResult(newAccessToken, newRefreshToken);
     }
 }

@@ -3,8 +3,11 @@ package co.edu.corhuila.synkro.auth.application.usecase;
 import co.edu.corhuila.synkro.auth.application.port.out.HashFunction;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
 import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore;
+import co.edu.corhuila.synkro.auth.application.port.out.RegistrationAttemptLog;
 import co.edu.corhuila.synkro.auth.application.port.out.TokenIssuer;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
+import co.edu.corhuila.synkro.auth.domain.model.AuthenticatedCaller;
+import co.edu.corhuila.synkro.auth.domain.model.Roles;
 import co.edu.corhuila.synkro.auth.domain.model.SystemUser;
 
 import java.time.Clock;
@@ -16,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /** Hand-written test doubles: auth-core has no mocking library and needs none. */
@@ -23,6 +27,11 @@ final class Fakes {
     private Fakes() {}
 
     static final String PASSWORD = "correct-password";
+
+    /** A verified human ADMIN: the only caller allowed to register users. */
+    static final AuthenticatedCaller ADMIN_CALLER =
+        new AuthenticatedCaller("00000000-0000-0000-0000-0000000000ad", Set.of(Roles.ADMIN), Set.of());
+    static final String CORRELATION_ID = "corr-0001";
 
     static final Instant NOW = Instant.parse("2026-01-01T00:00:00Z");
     static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
@@ -40,6 +49,9 @@ final class Fakes {
             return hash.equals("hashed:" + plaintext);
         }
     };
+
+    /** For tests that are not about the security log. */
+    static final RegistrationAttemptLog IGNORED_ATTEMPTS = (correlationId, callerId, reason) -> {};
 
     /** Prefixing keeps the stored value distinguishable from the raw token. */
     static final HashFunction HASH = value -> "sha:" + value;

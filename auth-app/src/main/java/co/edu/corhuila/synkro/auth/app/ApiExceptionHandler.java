@@ -4,6 +4,7 @@ import co.edu.corhuila.synkro.auth.application.usecase.BusinessRuleViolationExce
 import co.edu.corhuila.synkro.auth.application.usecase.ForbiddenException;
 import co.edu.corhuila.synkro.auth.application.usecase.InvalidCredentialsException;
 import co.edu.corhuila.synkro.auth.application.usecase.NotFoundException;
+import co.edu.corhuila.synkro.auth.application.usecase.UnauthenticatedException;
 import co.edu.corhuila.synkro.auth.application.usecase.ValidationException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -45,6 +46,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         // One fixed message for every cause: the response must never say whether the
         // email exists, the account is inactive, or the password was wrong.
         return envelope(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Invalid credentials", null, request);
+    }
+
+    @ExceptionHandler(UnauthenticatedException.class)
+    public ResponseEntity<Map<String, Object>> unauthenticated(HttpServletRequest request) {
+        return envelope(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", SecurityErrorResponses.UNAUTHORIZED_MESSAGE, null, request);
     }
 
     @ExceptionHandler(ForbiddenException.class)

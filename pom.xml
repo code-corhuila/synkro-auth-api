@@ -17,12 +17,14 @@
     <jjwt.version>0.13.0</jjwt.version>
     <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
     <maven-surefire-plugin.version>3.5.3</maven-surefire-plugin.version>
+    <jacoco.version>0.8.13</jacoco.version>
   </properties>
 
   <modules>
     <module>auth-core</module>
     <module>auth-adapters</module>
     <module>auth-app</module>
+    <module>auth-coverage</module>
   </modules>
 
   <dependencyManagement>
@@ -57,7 +59,25 @@
           <artifactId>spring-boot-maven-plugin</artifactId>
           <version>${spring-boot.version}</version>
         </plugin>
+        <plugin>
+          <groupId>org.jacoco</groupId>
+          <artifactId>jacoco-maven-plugin</artifactId>
+          <version>${jacoco.version}</version>
+        </plugin>
       </plugins>
     </pluginManagement>
+    <plugins>
+      <!-- Every module records its execution data; the thresholds are checked in auth-coverage. -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>record-coverage</id>
+            <goals><goal>prepare-agent</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
   </build>
 </project>

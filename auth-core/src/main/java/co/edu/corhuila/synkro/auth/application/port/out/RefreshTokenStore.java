@@ -14,6 +14,15 @@ public interface RefreshTokenStore {
      */
     Consumption consume(String tokenHash);
 
+    /**
+     * Burns {@code oldTokenHash} and, only if it was usable, stores {@code newTokenHash} for the same owner, as one step
+     * that is serialized with {@link #revokeAllOf(String)} of that owner: a revocation either happens before the rotation
+     * (the old token is then found already used) or after it (and then it also revokes the replacement). The result means
+     * what it means for {@link #consume(String)}; {@link Consumption.Consumed} says the replacement was stored, and nothing
+     * is stored for any other result.
+     */
+    Consumption rotate(String oldTokenHash, String newTokenHash, Instant newExpiresAt);
+
     /** Makes every refresh token of the user unusable, whether or not it is still active. Nothing is deleted. */
     void revokeAllOf(String userId);
 

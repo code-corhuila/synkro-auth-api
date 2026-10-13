@@ -172,9 +172,9 @@ are one address. A row stored with upper-case letters before this change (for ex
 | 400 | `VALIDATION_ERROR` | invalid or missing field or header (problems in `details`), malformed JSON; also `405` and `415`, which the catalog has no code for |
 | 401 | `UNAUTHORIZED` | no token, a fake or expired one, wrong credentials. The gate runs first: an unknown route without a valid token is a `401`, not a `404` |
 | 403 | `FORBIDDEN` | a valid token whose role may not do it (the lookup with a `SALESPERSON`, `INVENTORY` or `SERVICE` token) |
-| 404 | `NOT_FOUND` | unknown user id (a malformed id is the same `404`) or an unknown route, for a caller with a valid token |
+| 404 | `NOT_FOUND` | unknown user or service token id (a malformed id is the same `404`) or an unknown route, for a caller with a valid token |
 | 405 | `VALIDATION_ERROR` | a wrong method on a known route, with the `Allow` header, for a caller with a valid token |
-| 422 | `BUSINESS_RULE_VIOLATION` | email already registered; idempotency key reused with another request |
+| 422 | `BUSINESS_RULE_VIOLATION` | email already registered; idempotency key reused with another request (another user, or another service for a service token) |
 | 500 | `INTERNAL_ERROR` | anything unexpected: a fixed message, no stack trace, class name, SQL or host in the body; the cause stays in the log, with the `traceId` |
 
 The `404`, `405` and `500` are produced by `ApiExceptionHandler` in the original dispatch, so the error is never
@@ -234,6 +234,72 @@ curl -s -X POST http://localhost:8080/api/v1/auth/logout \
 # 200 {"loggedOut":true}
 ```
 
+## Service tokens
+
+`synkro-workflow` and `synkro-worker` call the other services with a token of their own, never a person's (ADR-006
+Decision 2). An `ADMIN` issues it here and stores it as the `SERVICE_TOKEN` secret of the environment.
+
+| Endpoint | Who | Success |
+|---|---|---|
+| `POST /api/v1/auth/service-tokens` | `ADMIN` only, decided in `IssueServiceTokenUseCase` with `RoleGuard` | `201` + `Location: /api/v1/auth/service-tokens/{id}` and the token, or `200` on a replay with the metadata only |
+| `GET /api/v1/auth/service-tokens/{id}` | `ADMIN` only, decided in `GetServiceTokenUseCase` with `RoleGuard` | `200` with the metadata, never the token |
+
+`SALESPERSON`, `INVENTORY` and a `SERVICE` caller get `403 FORBIDDEN` on both (a service token cannot issue or read
+tokens); no token is `401`. The role is checked before the input, so a caller who may not issue learns nothing from a
+validation error.
+
+**Request.** `{ "service": "synkro-workflow" | "synkro-worker" }` and the header `Idempotency-Key` (8–128 characters,
+required). A missing or unknown `service`, or a bad key, is `400 VALIDATION_ERROR` with the field in `details`. Any other
+field of the body, such as `permissions`, `issuedBy` or `roles`, is **ignored**: the permissions come from the table below
+and `issuedBy` is the `sub` of the verified ADMIN token, never something the client says.
+
+**Response.** `ServiceTokenResponse` is `{ tokenId, service, permissions, issuedBy, issuedAt, expiresAt }`; the `201` adds
+`token`. The token is an RS256 JWT with:
+
+| Claim | Value |
+|---|---|
+| `sub` | the service name |
+| `roles` | `["SERVICE"]` |
+| `permissions` | the fixed set of that service (below) |
+| `jti` | `tokenId` |
+| `iat`, `exp` | `issuedAt` and `expiresAt`, whole seconds, `expiresAt = issuedAt + 30 days` |
+
+| Service | Permissions |
+|---|---|
+| `synkro-workflow` | `customers:read`, `stock:reserve`, `stock:release`, `sales:register` |
+| `synkro-worker` | `products:read`, `stock-alerts:read`, `stock-alerts:write` |
+
+The table is code (`ServiceAccount`), not configuration, and `ServiceAccountTest` spells it out: changing a permission
+fails the build until the ADR is updated and the test is edited in the same review. The 30-day lifetime is a constant
+of `ServiceToken`, not a property, so the invariant `expiresAt = issuedAt + 30 days` cannot be configured away. The token
+verifies with this service's own `Rs256TokenVerifier` as a `SERVICE` caller carrying exactly those permissions.
+
+**The token is shown once.** Only the `201` carries it. The `service_token` row keeps the metadata (the table has no column
+for the token) and the `idempotency_key` row (type `SERVICE_TOKEN`) points at it; both are written in one transaction by
+`JdbcServiceTokenStore`. The token is never stored, logged or returned again.
+
+- The same key and the same `service`: `200` with the metadata, no `token`, nothing created.
+- The same key with another `service`: `422 BUSINESS_RULE_VIOLATION` on `Idempotency-Key`; the body shows nothing of the first token.
+- Two simultaneous requests with the same key create one row: one `201` with the token, one `200` without it.
+- **If a response is lost, issue a new token** with a new key: the first one cannot be recovered, and `GET` only confirms that
+  it was issued and when it expires. Rotation is the same: before `expiresAt`, issue a new token, replace the secret and
+  restart the service.
+
+**There is no revocation.** Services validate the token locally, so a token stays valid until its own `exp`, also after
+a newer one was issued and also if it leaks; the narrow permissions limit the damage (ADR-006, accepted cost). No row of
+either table is ever deleted: `auth_app` has no `DELETE`.
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/auth/service-tokens \
+  -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" -H "Authorization: Bearer <ADMIN access token>" \
+  -d '{"service":"synkro-workflow"}'
+# 201 {"tokenId":"…","service":"synkro-workflow","permissions":["customers:read","stock:reserve","stock:release","sales:register"],
+#      "issuedBy":"<the ADMIN userId>","issuedAt":"…","expiresAt":"…","token":"eyJ…"}   <- copy it now
+
+curl -s http://localhost:8080/api/v1/auth/service-tokens/<tokenId> -H "Authorization: Bearer <ADMIN access token>"
+# 200 the same metadata, without "token"
+```
+
 ## Token validation
 
 Every request except the public routes must carry `Authorization: Bearer <access token>`. The service
@@ -260,5 +326,5 @@ the common error envelope `{ error, message, details?, traceId }`, where `traceI
 Everything else requires a valid token. That includes `POST /api/v1/auth/logout`. An invalid `Authorization` header on a public route is ignored, so an
 expired access token never blocks `refresh`.
 
-The caller can carry the token-only role `SERVICE` (service tokens, later story); a use case that must refuse
+The caller can carry the token-only role `SERVICE` (see [Service tokens](#service-tokens)); a use case that must refuse
 services calls `RoleGuard` without changes to the verifier.

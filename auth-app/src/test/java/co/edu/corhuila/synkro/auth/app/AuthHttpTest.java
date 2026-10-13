@@ -5,11 +5,23 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.*;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class AuthHttpTest {
+
+    @DynamicPropertySource
+    static void signingKey(DynamicPropertyRegistry registry) throws Exception {
+        Path dir = Files.createTempDirectory("auth-http-test");
+        Path key = TestKeys.writePrivateKeyPem(TestKeys.generate(2048), dir);
+        registry.add("JWT_PRIVATE_KEY_FILE", key::toString);
+    }
 
     @LocalServerPort
     int port;

@@ -3,6 +3,7 @@ package co.edu.corhuila.synkro.auth.app;
 import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
@@ -28,6 +29,8 @@ public class SecurityConfig {
                 // Only the ERROR dispatch is permitted; a direct request to /error is not.
                 .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                 .requestMatchers("/health").permitAll()
+                // Public by design (ADR-001 §8): the caller has no access token yet, by definition.
+                .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
                 .anyRequest().authenticated()
             )
             .addFilterBefore(new MinimalBearerCheckFilter(), UsernamePasswordAuthenticationFilter.class)

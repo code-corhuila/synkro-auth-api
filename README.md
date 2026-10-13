@@ -413,9 +413,17 @@ Two behaviors are accepted on purpose, because `refresh_token` has no column to 
 records, not whether a row was rotated, logged out or revoked, nor when):
 
 - **A double submit looks like a reuse.** Two concurrent refreshes with the same token (a retry, a double click): one wins and gets a new
-  pair; the other finds the token already used and revokes the owner's tokens, normally including the winner's new one. The user
-  logs in again. A grace period would need a "used at" timestamp that the table does not have. The winner's new token can survive only if
-  the loser's revocation lands in the few milliseconds before the winner stores it; that window exists and was not observed in testing.
+  pair; the other finds the token already used and revokes the owner's tokens, including the winner's new one. The user
+  logs in again. A grace period would need a "used at" timestamp that the table does not have.
+
+**A revocation and a rotation of the same owner never interleave.** Burning the old token and storing its replacement is one store step
+(`RefreshTokenStore.rotate`, one transaction), and both it and `revokeAllOf` take a transaction-scoped advisory lock of that owner first
+(`pg_advisory_xact_lock(int, int)`, a key space apart from the bigint key ADR-014 reserves for the initial administrator). A revocation
+therefore runs entirely before a rotation (the old token is then already used: a replay) or entirely after it (and it revokes the
+replacement too); a replacement can no longer be stored after a revocation ran. Until this was fixed, `consume` and `save` were separate
+steps and a revocation between them left the replacement usable
+(`RefreshRotationVersusReuseRevocationIntegrationTest`, which covers both orders and a 100-round race on real PostgreSQL).
+This is about refresh tokens only: an access JWT that was already issued stays valid until it expires (no early revocation is implemented).
 - **A logged-out token presented to `refresh` also looks like a reuse.** It answers `401` and revokes every session of that user. Clients
   must drop the refresh token when they log out and never send it again.
 

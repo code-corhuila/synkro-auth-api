@@ -45,6 +45,15 @@ public class JdbcRefreshTokenStore implements RefreshTokenStore {
         "UPDATE auth_schema.refresh_token SET active = false "
             + "WHERE token = ? AND user_id::text = ? AND active = true AND expiration_date > now()";
 
+    // Who owns the token, whatever its state: read first only to know which owner to serialize with.
+    private static final String OWNER_OF = "SELECT user_id::text FROM auth_schema.refresh_token WHERE token = ?";
+
+    // Held until the end of the transaction. A rotation and a revocation of the same owner take it before they touch
+    // any row, so a revocation cannot run between the burning of a token and the storing of its replacement. The
+    // two-integer form is a different key space from the bigint key that ADR-014 reserves for the initial administrator.
+    private static final String LOCK_OWNER = "SELECT count(*) FROM (SELECT pg_advisory_xact_lock(?, hashtext(?))) locked";
+    static final int LOCK_NAMESPACE = 0x52544F4B;
+
     private final JdbcTemplate jdbc;
     private final TransactionOperations independentTransaction;
 
@@ -67,11 +76,37 @@ public class JdbcRefreshTokenStore implements RefreshTokenStore {
             .orElseGet(Consumption.Unknown::new);
     }
 
+    // Burning the old token and storing its replacement are one transaction, serialized per owner with revokeAllOf.
+    // A revocation that wins the lock has already made the old token "used", which this reports as a replay.
+    @Override
+    public Consumption rotate(String oldTokenHash, String newTokenHash, Instant newExpiresAt) {
+        Optional<String> owner = firstOwner(OWNER_OF, oldTokenHash);
+        if (owner.isEmpty()) {
+            return new Consumption.Unknown();
+        }
+        return independentTransaction.execute(status -> {
+            lockOwner(owner.get());
+            Consumption result = consume(oldTokenHash);
+            if (result instanceof Consumption.Consumed consumed) {
+                save(newTokenHash, consumed.userId(), newExpiresAt);
+            }
+            return result;
+        });
+    }
+
     // Its own transaction (REQUIRES_NEW): the request that detects a reuse answers 401, and whatever
-    // transaction that call runs in must not take the revocation down with it.
+    // transaction that call runs in must not take the revocation down with it. It waits for a rotation of the same
+    // owner that is in progress, so the replacement that rotation stores is revoked with the rest.
     @Override
     public void revokeAllOf(String userId) {
-        independentTransaction.executeWithoutResult(status -> jdbc.update(REVOKE_ALL_OF_USER, UUID.fromString(userId)));
+        independentTransaction.executeWithoutResult(status -> {
+            lockOwner(userId);
+            jdbc.update(REVOKE_ALL_OF_USER, UUID.fromString(userId));
+        });
+    }
+
+    private void lockOwner(String userId) {
+        jdbc.queryForObject(LOCK_OWNER, Long.class, LOCK_NAMESPACE, userId);
     }
 
     @Override

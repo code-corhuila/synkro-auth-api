@@ -130,6 +130,15 @@ final class Fakes {
         }
 
         @Override
+        public Consumption rotate(String oldTokenHash, String newTokenHash, Instant newExpiresAt) {
+            Consumption result = consume(oldTokenHash);
+            if (result instanceof Consumption.Consumed consumed) {
+                save(newTokenHash, consumed.userId(), newExpiresAt);
+            }
+            return result;
+        }
+
+        @Override
         public void revokeAllOf(String userId) {
             revokedUsers.add(userId);
             hashToUser.entrySet().removeIf(entry -> {

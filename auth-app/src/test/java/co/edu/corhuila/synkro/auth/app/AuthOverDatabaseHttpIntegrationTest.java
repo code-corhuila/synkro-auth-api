@@ -74,6 +74,18 @@ class AuthOverDatabaseHttpIntegrationTest {
         return names;
     }
 
+    @Test
+    void healthReportsTheAuthSchemaReachable_withTheContractShape() throws Exception {
+        ResponseEntity<String> response = http.getForEntity("http://localhost:" + port + "/health", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode body = body(response);
+        assertThat(body.get("status").asText()).isEqualTo("ok");
+        assertThat(body.get("service").asText()).isEqualTo("synkro-auth-api");
+        assertThat(body.get("timestamp").asText()).isNotBlank();
+        assertThat(body.get("dependencies").get("database").asText()).isEqualTo("ok");
+    }
+
     private int rowsWithToken(String token) {
         return jdbc.queryForObject("SELECT count(*) FROM auth_schema.refresh_token WHERE token = ?", Integer.class, token);
     }

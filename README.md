@@ -45,7 +45,13 @@ The first command installs `auth-core` and `auth-adapters` into the local Maven 
 
 ```bash
 curl http://localhost:8080/health
+# 200 {"status":"ok","service":"synkro-auth-api","timestamp":"…","dependencies":{"database":"ok"}}
 ```
+
+`/health` checks the one dependency of this service, the connection to `auth_schema` (it reads one row of `system_user` as
+`auth_app`, with a 3 second limit), as `05-architecture/cross-cutting.md` section 4 asks. When it cannot, the answer is
+`503 {"status":"degraded", …, "dependencies":{"database":"down"}}`, with no host, user or driver message in the body or the log.
+It is public and does not depend on any other service.
 
 ## Running the tests
 

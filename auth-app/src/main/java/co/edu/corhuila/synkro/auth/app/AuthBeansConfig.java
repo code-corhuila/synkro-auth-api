@@ -5,23 +5,30 @@ import co.edu.corhuila.synkro.auth.adapter.out.crypto.Rs256TokenIssuer;
 import co.edu.corhuila.synkro.auth.adapter.out.crypto.Rs256TokenVerifier;
 import co.edu.corhuila.synkro.auth.adapter.out.crypto.Sha256HashFunction;
 import co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc.JdbcRefreshTokenStore;
+import co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc.JdbcUserRegistrationStore;
 import co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc.JdbcUserRepository;
 import co.edu.corhuila.synkro.auth.application.port.out.AccessTokenVerifier;
 import co.edu.corhuila.synkro.auth.application.port.out.HashFunction;
+import co.edu.corhuila.synkro.auth.application.port.out.IdGenerator;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
 import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore;
 import co.edu.corhuila.synkro.auth.application.port.out.TokenIssuer;
+import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
+import co.edu.corhuila.synkro.auth.application.usecase.GetUserUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.LoginUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.RefreshUseCase;
+import co.edu.corhuila.synkro.auth.application.usecase.RegisterUserUseCase;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionOperations;
 
 import java.security.PrivateKey;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.UUID;
 
 @Configuration
 public class AuthBeansConfig {
@@ -65,7 +72,29 @@ public class AuthBeansConfig {
         return new JdbcRefreshTokenStore(jdbc);
     }
 
+    @Bean
+    public IdGenerator idGenerator() {
+        return () -> UUID.randomUUID().toString();
+    }
+
+    // The transaction is opened by the adapter, not by the use case, so auth-core stays free of Spring.
+    @Bean
+    public UserRegistrationStore userRegistrationStore(JdbcTemplate jdbc, TransactionOperations transactions) {
+        return new JdbcUserRegistrationStore(jdbc, transactions);
+    }
+
     // ── Use cases ────────────────────────────────────────────────────
+
+    @Bean
+    public RegisterUserUseCase registerUserUseCase(UserRepository users, UserRegistrationStore registrations,
+                                                   PasswordHasher hasher, IdGenerator ids, Clock clock) {
+        return new RegisterUserUseCase(users, registrations, hasher, ids, clock);
+    }
+
+    @Bean
+    public GetUserUseCase getUserUseCase(UserRepository users) {
+        return new GetUserUseCase(users);
+    }
 
     @Bean
     public LoginUseCase loginUseCase(UserRepository users, PasswordHasher hasher, TokenIssuer issuer,

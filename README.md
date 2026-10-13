@@ -105,9 +105,11 @@ stored as a SHA-256 hash with an `expiration_date` seven days ahead; rotating it
 
 ### The first local user
 
-There is no register endpoint until HU-AUTH-09 and `synkro-auth-db` seeds no users, so a new local database has
-nobody to log in as. `scripts/create-local-user.sh` hashes a password with bcrypt on your machine and inserts the
-row as `auth_app`; nothing with a password or a hash is committed:
+`synkro-auth-db` seeds no users, so a new local database has nobody to log in as. The normal way to create one
+is now `POST /api/v1/auth/register` (see [Users](#users-register-and-lookup)); it is public, so it needs no
+login first. `scripts/create-local-user.sh` remains for local convenience, for example to create an `ADMIN`
+without going through the API: it hashes a password with bcrypt on your machine, lowercases the email like the
+service does, and inserts the row as `auth_app`; nothing with a password or a hash is committed:
 
 ```bash
 export PGHOST=localhost PGPORT=5432 PGDATABASE=synkro PGUSER=auth_app PGPASSWORD='<auth_app password>'
@@ -129,7 +131,69 @@ curl -s -X POST http://localhost:8080/api/v1/auth/refresh \
 ```
 
 A refresh token works once: using it returns a new pair and invalidates the old token, so replaying it is a `401`.
-Emails are matched exactly as stored; normalization comes with the register story.
+
+## Users: register and lookup
+
+| Endpoint | Who | Success |
+|---|---|---|
+| `POST /api/v1/auth/register` | Public: any caller, any of `ADMIN`, `SALESPERSON`, `INVENTORY` (a documented simplification of the academic MVP; there is no authorization on it) | `201` + `Location: /api/v1/auth/users/{id}`, or `200` on a replay; body `UserResponse` |
+| `GET /api/v1/auth/users/{id}` | `ADMIN` only, decided in `GetUserUseCase` with `RoleGuard` | `200` `UserResponse` |
+
+`UserResponse` is `{ userId, name, email, role, registrationDate, active }`. The password and its hash are never
+returned. `register` takes `{ name (1–150), email (3–255, valid), password (8–72 bytes), role }`; `SERVICE` or any
+other role is rejected before the database is touched. The 72-byte ceiling is bcrypt's own limit: a longer
+password would be silently truncated.
+
+**Headers.** `Idempotency-Key` (8–128 characters) is **required** on `register`; a missing or out-of-range key is a
+`400 VALIDATION_ERROR`. `X-Correlation-Id` is reused if sent, generated otherwise, echoed in every response and used
+as the `traceId` of every error. `Authorization: Bearer …` is needed for the lookup only.
+
+**Idempotency.** The user and its `idempotency_key` row (type `USER`) are written in one transaction, started by
+the persistence adapter (`JdbcUserRegistrationStore`), so either both exist or neither does.
+
+- First request: `201`. The same key with the same request again: `200` with the same user, nothing created.
+- The same key with a **different** request: `422 BUSINESS_RULE_VIOLATION` on `Idempotency-Key`. The table keeps no
+  fingerprint of the request, so the service compares it with the user the key created (name, email, role and, with
+  bcrypt, the password). A key is only an answer to the request that made it: replaying someone else's key must not
+  reveal that user's name and email.
+- Two simultaneous requests with the same key create one user and both succeed (`201` and `200`).
+- A new key with an email that is already registered: `422 BUSINESS_RULE_VIOLATION` with `email` in `details`,
+  also when two such requests arrive at once (the unique violation is translated, never a `500`).
+
+**Emails** are trimmed and lowercased on `register` and on `login`, so `Ana@Example.test` and `ana@example.test`
+are one address. A row stored with upper-case letters before this change (for example by an older
+`create-local-user.sh`) is not found by `login`; update it to lowercase.
+
+**Errors.** Every error is `{ error, message, details?, traceId }`, with `traceId` equal to the request's
+`X-Correlation-Id`, whichever layer raises it. The catalog is closed (`07-api/guidelines.md`).
+
+| Status | `error` | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | invalid or missing field or header (problems in `details`), malformed JSON; also `405` and `415`, which the catalog has no code for |
+| 401 | `UNAUTHORIZED` | no token, a fake or expired one, wrong credentials. The gate runs first: an unknown route without a valid token is a `401`, not a `404` |
+| 403 | `FORBIDDEN` | a valid token whose role may not do it (the lookup with a `SALESPERSON`, `INVENTORY` or `SERVICE` token) |
+| 404 | `NOT_FOUND` | unknown user id (a malformed id is the same `404`) or an unknown route, for a caller with a valid token |
+| 405 | `VALIDATION_ERROR` | a wrong method on a known route, with the `Allow` header, for a caller with a valid token |
+| 422 | `BUSINESS_RULE_VIOLATION` | email already registered; idempotency key reused with another request |
+| 500 | `INTERNAL_ERROR` | anything unexpected: a fixed message, no stack trace, class name, SQL or host in the body; the cause stays in the log, with the `traceId` |
+
+The `404`, `405` and `500` are produced by `ApiExceptionHandler` in the original dispatch, so the error is never
+sent through the servlet error page and the security chain is not asked a second time (the rule that lets only
+the `ERROR` dispatch through remains for what the container still renders at `/error`, which has the same envelope).
+
+**Login timing.** A wrong password, an unknown email and a deactivated user run the same single bcrypt verification
+(an unknown email is verified against a stand-in hash computed once at startup, at the same cost factor), so their
+response times are comparable and a client cannot tell which emails exist. The three bodies are identical. The tests
+check the work performed, not the milliseconds.
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/auth/register \
+  -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"name":"Ana Pérez","email":"ana@example.test","password":"<at least 8 characters>","role":"ADMIN"}'
+# 201 {"userId":"…","name":"Ana Pérez","email":"ana@example.test","role":"ADMIN","registrationDate":"…","active":true}
+
+curl -s http://localhost:8080/api/v1/auth/users/<userId> -H "Authorization: Bearer <ADMIN access token>"
+```
 
 ## Token validation
 
@@ -152,7 +216,8 @@ refresh token are all `401 UNAUTHORIZED`. A valid token whose role does not allo
 the common error envelope `{ error, message, details?, traceId }`, where `traceId` is the request's
 `X-Correlation-Id` (generated when the client sends none) and the response echoes that header.
 
-**Public routes** (no token needed): `GET /health`, `POST /api/v1/auth/login` and `POST /api/v1/auth/refresh`.
+**Public routes** (no token needed): `GET /health`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh` and
+`POST /api/v1/auth/register`. Only those methods are public: a wrong method on them without a token is a `401`.
 Everything else requires a valid token. An invalid `Authorization` header on a public route is ignored, so an
 expired access token never blocks `refresh`.
 

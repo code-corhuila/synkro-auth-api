@@ -1,0 +1,242 @@
+name: ci
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [develop, qa, main]
+  pull_request:
+    branches: [develop, qa, main]
+
+jobs:
+  check-common-files:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify common repository files exist
+        run: |
+          set -e
+          test -f README.md
+          test -f .gitignore
+          test -f .github/CODEOWNERS
+          test -f .github/pull_request_template.md
+          test -f .env.example
+          echo "Common files present."
+
+  build-test-and-architecture-check:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+          cache: "maven"
+      - name: Build and test
+        run: mvn -B verify
+      - name: Architecture check — auth-core has no Spring dependency
+        # dependency:tree prints at INFO level, so `-q` would silence it and the grep
+        # would always pass; the tree is written to a file instead.
+        run: |
+          set -euo pipefail
+          mvn -B -q -pl auth-core dependency:tree -DoutputFile=target/dependency-tree.txt
+          test -s auth-core/target/dependency-tree.txt
+          violations=$(grep -i 'org.springframework' auth-core/target/dependency-tree.txt || true)
+          if [ -n "$violations" ]; then
+            echo "auth-core depends on Spring:"
+            echo "$violations"
+            exit 1
+          fi
+          echo "Architecture check passed: auth-core has no Spring dependency."
+
+  integration-tests:
+    timeout-minutes: 45
+    # Runs the whole build against a real PostgreSQL 16 whose schema is built, by the pinned
+    # Flyway image, from synkro-auth-db: the same migrations that create the tables in
+    # production, so there is no copy of the SQL in this repository to drift.
+    runs-on: ubuntu-latest
+    env:
+      # Pinned to a commit so a push to synkro-auth-db cannot turn this repository's CI red
+      # by surprise. Bump it, in a PR, when the service needs a newer schema.
+      # c338bf95 is the merge of the user_creation_audit migrations (V014-V017), which registration writes to.
+      AUTH_DB_REF: c338bf95190fc20cbff55c13bb83c279a1febdf9
+      # The tag synkro-auth-db's own CI and deploy/compose.yml run.
+      FLYWAY_IMAGE: flyway/flyway:11.20.3-alpine
+      # The database every step below uses. Its exclusive name is also the identity that the tests which empty
+      # auth_schema must confirm with current_database() before they truncate anything.
+      DISPOSABLE_DB: synkro_auth_disposable_ci
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: ci_admin_pw
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: code-corhuila/synkro-auth-db
+          ref: ${{ env.AUTH_DB_REF }}
+          path: synkro-auth-db
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+          cache: "maven"
+
+      - name: Create the auth_app login role with a throwaway password
+        # Stands in for the bootstrap script of synkro-infra-postgres (ADR-012), exactly as
+        # synkro-auth-db's CI does. The password exists only for this job and is masked.
+        run: |
+          set -euo pipefail
+          password=$(openssl rand -hex 16)
+          echo "::add-mask::$password"
+          echo "AUTH_APP_PASSWORD=$password" >> "$GITHUB_ENV"
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE auth_app LOGIN PASSWORD '$password';" \
+            -c "CREATE DATABASE $DISPOSABLE_DB;"
+
+      - name: Build the schema from synkro-auth-db
+        # Success alone proves nothing (a wrong location migrates zero files), so count them.
+        run: |
+          set -euo pipefail
+          # The repository is copied in with `docker cp`, not bind-mounted, so this works
+          # whether or not the Docker daemon can see the job's filesystem (act, containers).
+          cid=$(docker create --network host \
+            -e FLYWAY_URL=jdbc:postgresql://localhost:5432/$DISPOSABLE_DB \
+            -e FLYWAY_USER=postgres -e FLYWAY_PASSWORD=ci_admin_pw \
+            "$FLYWAY_IMAGE" -workingDirectory=/workspace -configFiles=flyway.toml migrate)
+          trap 'docker rm -f "$cid" > /dev/null' EXIT
+          docker cp -q synkro-auth-db/. "$cid:/workspace"
+          docker start -a "$cid"
+          test "$(docker inspect -f '{{.State.ExitCode}}' "$cid")" = 0
+          expected=$(find synkro-auth-db/01_ddl synkro-auth-db/02_dml synkro-auth-db/03_dcl synkro-auth-db/04_tcl -name 'V*.sql' | wc -l)
+          # Flyway keeps its history where its configuration says, not necessarily in public: find it.
+          history=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d "$DISPOSABLE_DB" -tAc \
+            "SELECT quote_ident(n.nspname) || '.flyway_schema_history' FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = 'flyway_schema_history' AND c.relkind = 'r';")
+          if [ "$(printf '%s' "$history" | grep -c .)" != 1 ]; then
+            echo "::error::Expected exactly one flyway_schema_history table, found: ${history:-none}"
+            exit 1
+          fi
+          applied=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d "$DISPOSABLE_DB" -tAc \
+            "SELECT count(*) FROM $history WHERE success AND version IS NOT NULL;")
+          echo "V migrations in synkro-auth-db: $expected, applied: $applied"
+          if [ "$expected" -eq 0 ] || [ "$applied" != "$expected" ]; then
+            echo "Applied migrations do not match synkro-auth-db"
+            exit 1
+          fi
+
+      - name: The schema this service writes to exists
+        # The migration count above passes for any synkro-auth-db checkout whose files all applied, including one
+        # that predates the tables this service needs. Name them, so a stale AUTH_DB_REF fails here with a reason
+        # instead of as a wall of test errors.
+        run: |
+          set -euo pipefail
+          for table in system_user idempotency_key user_creation_audit; do
+            found=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d "$DISPOSABLE_DB" -tAc \
+              "SELECT to_regclass('auth_schema.$table') IS NOT NULL;")
+            if [ "$found" != "t" ]; then
+              echo "::error::auth_schema.$table is missing: AUTH_DB_REF ($AUTH_DB_REF) points to a synkro-auth-db commit without the schema this service needs"
+              exit 1
+            fi
+          done
+          # Initial-administrator audit (HU-AUTH-14) needs the operator columns that V014 adds, and the grants of V017.
+          column=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d "$DISPOSABLE_DB" -tAc \
+            "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'auth_schema' AND table_name = 'user_creation_audit' AND column_name = 'operator_identity';")
+          if [ "$column" != "1" ]; then
+            echo "::error::auth_schema.user_creation_audit.operator_identity is missing: AUTH_DB_REF ($AUTH_DB_REF) predates V014"
+            exit 1
+          fi
+          grants=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d "$DISPOSABLE_DB" -tAc \
+            "SELECT has_table_privilege('auth_app', 'auth_schema.user_creation_audit', 'INSERT')::text || has_table_privilege('auth_app', 'auth_schema.user_creation_audit', 'UPDATE')::text;")
+          if [ "$grants" != "truefalse" ]; then
+            echo "::error::auth_app must be able to INSERT but not UPDATE auth_schema.user_creation_audit (got: $grants)"
+            exit 1
+          fi
+
+      - name: Build and test with the database
+        # The initial-administrator tests empty auth_schema through the instance administrator, which is safe only
+        # because this job's PostgreSQL service is created for the job and discarded with it.
+        env:
+          TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/${{ env.DISPOSABLE_DB }}
+          TEST_DATABASE_USER: auth_app
+          TEST_DATABASE_PASSWORD: ${{ env.AUTH_APP_PASSWORD }}
+          TEST_DATABASE_DISPOSABLE: "true"
+          TEST_DISPOSABLE_DATABASE_NAME: ${{ env.DISPOSABLE_DB }}
+          TEST_ADMIN_DATABASE_USER: postgres
+          TEST_ADMIN_DATABASE_PASSWORD: ci_admin_pw
+        run: mvn -B verify
+
+      - name: The integration tests ran, none was skipped
+        # A mistyped variable would skip them all and still pass the build.
+        run: |
+          set -euo pipefail
+          mapfile -t reports < <(find . -path '*/target/surefire-reports/TEST-*IntegrationTest.xml')
+          test "${#reports[@]}" -gt 0
+          if grep -l 'skipped="[1-9]' "${reports[@]}"; then
+            echo "Some integration tests were skipped"
+            exit 1
+          fi
+          printf '%s\n' "${reports[@]}"
+          # The initialization suites must be among them, with tests that really executed.
+          for suite in JdbcInitialAdminStoreIntegrationTest InitialAdminCliIntegrationTest DisposableDatabaseGuardTest; do
+            report=$(find . -path "*/target/surefire-reports/TEST-*.${suite}.xml" | head -n 1)
+            test -n "$report" || { echo "::error::$suite did not run"; exit 1; }
+            grep -Eq 'tests="[1-9][0-9]*"' "$report" || { echo "::error::$suite ran no test"; exit 1; }
+          done
+
+      - name: The packaged initialization command runs without the HTTP server
+        # Runs the built artifact, as an operator would, against this job's disposable database: the first run
+        # creates the administrator, the second is the no-op, and nothing listens on the service port.
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/${{ env.DISPOSABLE_DB }}?currentSchema=auth_schema
+          SPRING_DATASOURCE_USERNAME: auth_app
+          SPRING_DATASOURCE_PASSWORD: ${{ env.AUTH_APP_PASSWORD }}
+          SYNKRO_INIT_OPERATOR: github-actions/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          jar=$(find auth-app/target -maxdepth 1 -name 'auth-app-*.jar' ! -name '*.original' | head -n 1)
+          test -n "$jar"
+          secret=$(mktemp)
+          trap 'rm -f "$secret"' EXIT
+          openssl rand -hex 16 > "$secret"
+          # Same rule as the tests: the server must confirm it is the disposable database before anything is emptied.
+          PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d "$DISPOSABLE_DB" -v ON_ERROR_STOP=1 \
+            --single-transaction -f - <<SQL
+          DO \$\$ BEGIN
+            IF current_database() <> '$DISPOSABLE_DB' OR current_database() !~ '^synkro_auth_disposable_[a-z0-9_]+\$' THEN
+              RAISE EXCEPTION 'refusing to empty auth_schema in database %', current_database();
+            END IF;
+          END \$\$;
+          TRUNCATE auth_schema.user_creation_audit, auth_schema.refresh_token, auth_schema.service_token, auth_schema.idempotency_key, auth_schema.system_user CASCADE;
+          SQL
+          initialize() {
+            java -cp "$jar" -Dloader.main=co.edu.corhuila.synkro.auth.app.InitialAdminCli \
+              org.springframework.boot.loader.launch.PropertiesLauncher \
+              --name "CI Admin" --email ci-admin@synkro.test --password-file "$secret" --correlation-id "$1"
+          }
+          first=$(initialize ci-init-1)
+          grep -qx 'result=created' <<< "$first"
+          second=$(initialize ci-init-2)
+          grep -qx 'result=already_initialized' <<< "$second"
+          admins=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d "$DISPOSABLE_DB" -tAc \
+            "SELECT count(*) FROM auth_schema.system_user WHERE role = 'ADMIN';")
+          audits=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d "$DISPOSABLE_DB" -tAc \
+            "SELECT count(*) FROM auth_schema.user_creation_audit WHERE operation = 'INITIAL_ADMIN_CREATED' AND operator_identity = 'github-actions/${{ github.run_id }}';")
+          test "$admins" = 1
+          test "$audits" = 1
+          if ss -ltn | grep -qE ':(8080|8000) '; then
+            echo "::error::An HTTP listener is open: the initialization command must not start the server"
+            exit 1
+          fi

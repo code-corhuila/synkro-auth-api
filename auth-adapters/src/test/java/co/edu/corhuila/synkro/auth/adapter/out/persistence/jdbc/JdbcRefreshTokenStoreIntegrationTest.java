@@ -1,0 +1,301 @@
+package co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc;
+
+import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore.Consumption;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+
+import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+@EnabledIfEnvironmentVariable(named = PostgresTestDatabase.URL_VARIABLE, matches = ".+")
+class JdbcRefreshTokenStoreIntegrationTest {
+
+    private static final Instant IN_AN_HOUR = Instant.now().plus(Duration.ofHours(1));
+
+    private JdbcTemplate jdbc;
+    private JdbcRefreshTokenStore store;
+    private String userId;
+
+    @BeforeEach
+    void setUp() {
+        jdbc = PostgresTestDatabase.jdbcTemplate();
+        store = new JdbcRefreshTokenStore(jdbc, PostgresTestDatabase.transactionManager(jdbc));
+        userId = PostgresTestDatabase.insertUser(jdbc, "ADMIN", true);
+    }
+
+    private static String newHash() {
+        return "hash-" + UUID.randomUUID();
+    }
+
+    @Test
+    void aSavedToken_isConsumedOnce_andReturnsItsOwner() {
+        String hash = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+
+        assertThat(store.consume(hash)).isEqualTo(new Consumption.Consumed(userId));
+        assertThat(store.consume(hash)).isEqualTo(new Consumption.AlreadyUsed(userId));
+    }
+
+    @Test
+    void anExpiredToken_isNotConsumed_andStaysActive() {
+        String hash = newHash();
+        store.save(hash, userId, Instant.now().minus(Duration.ofHours(1)));
+
+        assertThat(store.consume(hash)).isEqualTo(new Consumption.Unknown());
+        assertThat(activeOf(hash)).isTrue();
+    }
+
+    @Test
+    void anUnknownHash_isUnknown() {
+        assertThat(store.consume(newHash())).isEqualTo(new Consumption.Unknown());
+    }
+
+    @Test
+    void twoSimultaneousConsumes_ofTheSameHash_succeedExactlyOnce() throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            for (int round = 0; round < 50; round++) {
+                String hash = newHash();
+                store.save(hash, userId, IN_AN_HOUR);
+                CyclicBarrier start = new CyclicBarrier(2);
+
+                List<Future<Consumption>> results = new ArrayList<>();
+                for (int caller = 0; caller < 2; caller++) {
+                    results.add(pool.submit(() -> {
+                        start.await();
+                        return store.consume(hash);
+                    }));
+                }
+
+                long winners = 0;
+                for (Future<Consumption> result : results) {
+                    winners += result.get() instanceof Consumption.Consumed ? 1 : 0;
+                }
+                assertThat(winners).as("winners in round %d", round).isEqualTo(1);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void theStoredToken_isTheHashGiven_andConsumingKeepsTheRowInactive() {
+        String hash = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+
+        assertThat(rowsWithToken(hash)).isEqualTo(1);
+        assertThat(activeOf(hash)).isTrue();
+
+        store.consume(hash);
+
+        assertThat(rowsWithToken(hash)).isEqualTo(1);
+        assertThat(activeOf(hash)).isFalse();
+    }
+
+    @Test
+    void theServiceUser_cannotDeleteRefreshTokens() {
+        String hash = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+
+        assertThatThrownBy(() -> jdbc.update("DELETE FROM auth_schema.refresh_token WHERE token = ?", hash))
+            .isInstanceOf(DataAccessException.class)
+            .rootCause().hasMessageContaining("permission denied");
+        assertThat(rowsWithToken(hash)).isEqualTo(1);
+    }
+
+    @Test
+    void consume_ofAUsableToken_isConsumedWithItsOwner_andBurnsTheRow() {
+        String hash = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+
+        assertThat(store.consume(hash)).isEqualTo(new Consumption.Consumed(userId));
+        assertThat(activeOf(hash)).isFalse();
+    }
+
+    @Test
+    void consume_ofATokenAlreadyConsumed_isAlreadyUsedWithItsOwner() {
+        String hash = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+        store.consume(hash);
+
+        assertThat(store.consume(hash)).isEqualTo(new Consumption.AlreadyUsed(userId));
+    }
+
+    @Test
+    void consume_ofAnInactiveTokenThatHasExpired_isUnknown() {
+        String hash = newHash();
+        insertRow(hash, Instant.now().minus(Duration.ofHours(1)), false);
+
+        assertThat(store.consume(hash)).isEqualTo(new Consumption.Unknown());
+    }
+
+    @Test
+    void consume_ofAnActiveTokenThatHasExpired_isUnknown_andStaysActive() {
+        String hash = newHash();
+        store.save(hash, userId, Instant.now().minus(Duration.ofHours(1)));
+
+        assertThat(store.consume(hash)).isEqualTo(new Consumption.Unknown());
+        assertThat(activeOf(hash)).isTrue();
+    }
+
+    @Test
+    void consume_ofAnUnknownHash_isUnknown() {
+        assertThat(store.consume(newHash())).isEqualTo(new Consumption.Unknown());
+    }
+
+    @Test
+    void revokeAllOf_deactivatesTheActiveTokensOfThatUserOnly_andDeletesNothing() {
+        String other = PostgresTestDatabase.insertUser(jdbc, "ADMIN", true);
+        String activeOne = newHash();
+        String activeTwo = newHash();
+        String alreadyUsed = newHash();
+        String othersToken = newHash();
+        store.save(activeOne, userId, IN_AN_HOUR);
+        store.save(activeTwo, userId, IN_AN_HOUR);
+        store.save(alreadyUsed, userId, IN_AN_HOUR);
+        store.consume(alreadyUsed);
+        store.save(othersToken, other, IN_AN_HOUR);
+        int rowsBefore = rowsOf(userId, other);
+
+        store.revokeAllOf(userId);
+
+        assertThat(activeOf(activeOne)).isFalse();
+        assertThat(activeOf(activeTwo)).isFalse();
+        assertThat(activeOf(alreadyUsed)).isFalse();
+        assertThat(activeOf(othersToken)).as("another user's token").isTrue();
+        assertThat(rowsOf(userId, other)).as("rows after, none deleted").isEqualTo(rowsBefore);
+    }
+
+    @Test
+    void revokeAllOf_isCommittedEvenWhenTheSurroundingTransactionRollsBack() {
+        String hash = newHash();
+        String writtenByTheOuterTransaction = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+
+        assertThatThrownBy(() -> PostgresTestDatabase.transactions(jdbc).executeWithoutResult(status -> {
+            store.save(writtenByTheOuterTransaction, userId, IN_AN_HOUR);
+            store.revokeAllOf(userId);
+            throw new IllegalStateException("the request fails after the revocation");
+        })).isInstanceOf(IllegalStateException.class);
+
+        assertThat(rowsWithToken(writtenByTheOuterTransaction)).as("the outer transaction did roll back").isZero();
+        assertThat(activeOf(hash)).as("the revocation survived it").isFalse();
+    }
+
+    @Test
+    void twoSimultaneousConsumes_giveOneConsumedAndOneAlreadyUsed_andRevokingTheOwnerLeavesNothingActive() throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            for (int round = 0; round < 30; round++) {
+                String hash = newHash();
+                store.save(hash, userId, IN_AN_HOUR);
+                CyclicBarrier start = new CyclicBarrier(2);
+
+                List<Future<Consumption>> results = new ArrayList<>();
+                for (int caller = 0; caller < 2; caller++) {
+                    results.add(pool.submit(() -> {
+                        start.await();
+                        return store.consume(hash);
+                    }));
+                }
+
+                assertThat(List.of(results.get(0).get(), results.get(1).get()))
+                    .as("outcomes in round %d", round)
+                    .containsExactlyInAnyOrder(new Consumption.Consumed(userId), new Consumption.AlreadyUsed(userId));
+
+                String winnersNewToken = newHash();
+                store.save(winnersNewToken, userId, IN_AN_HOUR);
+                store.revokeAllOf(userId);
+                assertThat(activeOf(winnersNewToken)).as("the winner's new token in round %d", round).isFalse();
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void revoke_deactivatesTheTokenOfItsOwner() {
+        String hash = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+
+        store.revoke(hash, userId);
+
+        assertThat(activeOf(hash)).isFalse();
+        assertThat(rowsWithToken(hash)).isEqualTo(1);
+    }
+
+    @Test
+    void revoke_doesNothingWhenTheOwnerDiffers() {
+        String other = PostgresTestDatabase.insertUser(jdbc, "ADMIN", true);
+        String hash = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+
+        store.revoke(hash, other);
+
+        assertThat(activeOf(hash)).isTrue();
+    }
+
+    @Test
+    void revoke_ofAnUnknownHash_doesNothing_andDoesNotFail() {
+        String hash = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+
+        store.revoke(newHash(), userId);
+
+        assertThat(activeOf(hash)).isTrue();
+    }
+
+    @Test
+    void revoke_ofAnExpiredActiveToken_changesNothing() {
+        String hash = newHash();
+        store.save(hash, userId, Instant.now().minus(Duration.ofHours(1)));
+
+        store.revoke(hash, userId);
+
+        assertThat(activeOf(hash)).isTrue();
+    }
+
+    @Test
+    void revoke_ofATokenAlreadyUsed_keepsItInactive_andDeletesNothing() {
+        String hash = newHash();
+        store.save(hash, userId, IN_AN_HOUR);
+        store.consume(hash);
+
+        store.revoke(hash, userId);
+
+        assertThat(activeOf(hash)).isFalse();
+        assertThat(rowsWithToken(hash)).isEqualTo(1);
+    }
+
+    private void insertRow(String hash, Instant expiresAt, boolean active) {
+        jdbc.update("INSERT INTO auth_schema.refresh_token (user_id, token, expiration_date, active) VALUES (?, ?, ?, ?)",
+            UUID.fromString(userId), hash, java.sql.Timestamp.from(expiresAt), active);
+    }
+
+    private int rowsOf(String... userIds) {
+        return jdbc.queryForObject("SELECT count(*) FROM auth_schema.refresh_token WHERE user_id = ANY (?::uuid[])", Integer.class,
+            "{" + String.join(",", userIds) + "}");
+    }
+
+    private int rowsWithToken(String hash) {
+        return jdbc.queryForObject("SELECT count(*) FROM auth_schema.refresh_token WHERE token = ?", Integer.class, hash);
+    }
+
+    private boolean activeOf(String hash) {
+        return jdbc.queryForObject("SELECT active FROM auth_schema.refresh_token WHERE token = ?", Boolean.class, hash);
+    }
+}

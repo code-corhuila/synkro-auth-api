@@ -1,0 +1,163 @@
+package co.edu.corhuila.synkro.auth.application.usecase;
+
+import co.edu.corhuila.synkro.auth.application.port.out.HashFunction;
+import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
+import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore;
+import co.edu.corhuila.synkro.auth.application.port.out.RegistrationAttemptLog;
+import co.edu.corhuila.synkro.auth.application.port.out.TokenIssuer;
+import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
+import co.edu.corhuila.synkro.auth.domain.model.AuthenticatedCaller;
+import co.edu.corhuila.synkro.auth.domain.model.Roles;
+import co.edu.corhuila.synkro.auth.domain.model.SystemUser;
+
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/** Hand-written test doubles: auth-core has no mocking library and needs none. */
+final class Fakes {
+    private Fakes() {}
+
+    static final String PASSWORD = "correct-password";
+
+    /** A verified human ADMIN: the only caller allowed to register users. */
+    static final AuthenticatedCaller ADMIN_CALLER =
+        new AuthenticatedCaller("00000000-0000-0000-0000-0000000000ad", Set.of(Roles.ADMIN), Set.of());
+    static final String CORRELATION_ID = "corr-0001";
+
+    static final Instant NOW = Instant.parse("2026-01-01T00:00:00Z");
+    static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
+    static final Duration REFRESH_TTL = Duration.ofDays(7);
+
+    /** Fake "hash" is a prefix, so a test can tell a hash from the plaintext. */
+    static final PasswordHasher PASSWORD_HASHER = new PasswordHasher() {
+        @Override
+        public String hash(String plaintext) {
+            return "hashed:" + plaintext;
+        }
+
+        @Override
+        public boolean matches(String plaintext, String hash) {
+            return hash.equals("hashed:" + plaintext);
+        }
+    };
+
+    /** For tests that are not about the security log. */
+    static final RegistrationAttemptLog IGNORED_ATTEMPTS = (correlationId, callerId, reason) -> {};
+
+    /** Prefixing keeps the stored value distinguishable from the raw token. */
+    static final HashFunction HASH = value -> "sha:" + value;
+
+    static SystemUser user(String email, boolean active) {
+        return new SystemUser("u-1", "Ana", email, "hashed:" + PASSWORD, "ADMIN", NOW, active);
+    }
+
+    static UserRepository users(SystemUser... users) {
+        Map<String, SystemUser> byEmail = new HashMap<>();
+        Map<String, SystemUser> byId = new HashMap<>();
+        for (SystemUser u : users) {
+            byEmail.put(u.getEmail(), u);
+            byId.put(u.getUserId(), u);
+        }
+        return new UserRepository() {
+            @Override
+            public Optional<SystemUser> findByEmail(String email) {
+                return Optional.ofNullable(byEmail.get(email));
+            }
+
+            @Override
+            public Optional<SystemUser> findById(String userId) {
+                return Optional.ofNullable(byId.get(userId));
+            }
+        };
+    }
+
+    static class RecordingTokenIssuer implements TokenIssuer {
+        final List<String> accessSubjects = new ArrayList<>();
+        final List<String> accessRoles = new ArrayList<>();
+        private final AtomicInteger refreshCounter = new AtomicInteger();
+
+        @Override
+        public String issueAccessToken(String subject, String role) {
+            accessSubjects.add(subject);
+            accessRoles.add(role);
+            return "access-" + subject + "-" + role + "-" + accessSubjects.size();
+        }
+
+        @Override
+        public String issueRefreshToken() {
+            return "refresh-" + refreshCounter.incrementAndGet();
+        }
+    }
+
+    /**
+     * Same contract as the real port: a token is usable once and until it expires; after that it stays
+     * known as used. {@code hashToUser} and {@code hashToExpiry} hold the usable tokens only.
+     */
+    static class FakeRefreshTokenStore implements RefreshTokenStore {
+        final Map<String, String> hashToUser = new HashMap<>();
+        final Map<String, Instant> hashToExpiry = new HashMap<>();
+        final Map<String, String> usedHashToUser = new HashMap<>();
+        final Map<String, Instant> usedHashToExpiry = new HashMap<>();
+        final List<String> revokedUsers = new ArrayList<>();
+        final List<String> revokedHashes = new ArrayList<>();
+
+        @Override
+        public void save(String tokenHash, String userId, Instant expiresAt) {
+            hashToUser.put(tokenHash, userId);
+            hashToExpiry.put(tokenHash, expiresAt);
+        }
+
+        @Override
+        public Consumption consume(String tokenHash) {
+            if (hashToUser.containsKey(tokenHash) && hashToExpiry.get(tokenHash).isAfter(NOW)) {
+                usedHashToUser.put(tokenHash, hashToUser.remove(tokenHash));
+                usedHashToExpiry.put(tokenHash, hashToExpiry.remove(tokenHash));
+                return new Consumption.Consumed(usedHashToUser.get(tokenHash));
+            }
+            if (usedHashToUser.containsKey(tokenHash) && usedHashToExpiry.get(tokenHash).isAfter(NOW)) {
+                return new Consumption.AlreadyUsed(usedHashToUser.get(tokenHash));
+            }
+            return new Consumption.Unknown();
+        }
+
+        @Override
+        public Consumption rotate(String oldTokenHash, String newTokenHash, Instant newExpiresAt) {
+            Consumption result = consume(oldTokenHash);
+            if (result instanceof Consumption.Consumed consumed) {
+                save(newTokenHash, consumed.userId(), newExpiresAt);
+            }
+            return result;
+        }
+
+        @Override
+        public void revokeAllOf(String userId) {
+            revokedUsers.add(userId);
+            hashToUser.entrySet().removeIf(entry -> {
+                if (!entry.getValue().equals(userId)) {
+                    return false;
+                }
+                usedHashToUser.put(entry.getKey(), userId);
+                usedHashToExpiry.put(entry.getKey(), hashToExpiry.remove(entry.getKey()));
+                return true;
+            });
+        }
+
+        @Override
+        public void revoke(String tokenHash, String ownerId) {
+            if (ownerId.equals(hashToUser.get(tokenHash)) && hashToExpiry.get(tokenHash).isAfter(NOW)) {
+                revokedHashes.add(tokenHash);
+                usedHashToUser.put(tokenHash, hashToUser.remove(tokenHash));
+                usedHashToExpiry.put(tokenHash, hashToExpiry.remove(tokenHash));
+            }
+        }
+    }
+}

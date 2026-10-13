@@ -19,6 +19,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -44,6 +45,26 @@ class DatabaseUnavailableHttpTest {
 
     @LocalServerPort
     int port;
+
+    @Test
+    void whenTheDatabaseCannotBeReached_healthIs503Degraded_withoutLeaks_andWithinAFewSeconds(CapturedOutput output) throws Exception {
+        long startedAt = System.nanoTime();
+        ResponseEntity<String> response = new TestRestTemplate().getForEntity("http://localhost:" + port + "/health", String.class);
+        long seconds = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startedAt);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        JsonNode body = new ObjectMapper().readTree(response.getBody());
+        assertThat(body.get("status").asText()).isEqualTo("degraded");
+        assertThat(body.get("service").asText()).isEqualTo("synkro-auth-api");
+        assertThat(body.get("timestamp").asText()).isNotBlank();
+        assertThat(body.get("dependencies").get("database").asText()).isEqualTo("down");
+        assertThat(seconds).as("seconds the health check took").isLessThan(6);
+
+        for (String secret : new String[] {"jdbc:", "127.0.0.1", "unreachable_db", "auth_app", PASSWORD, "SELECT", "system_user"}) {
+            assertThat(response.getBody()).as("response body").doesNotContainIgnoringCase(secret);
+            assertThat(output.getAll()).as("service log").doesNotContainIgnoringCase(secret);
+        }
+    }
 
     @Test
     void whenTheDatabaseCannotBeReached_loginIs500InTheCommonEnvelope_withoutLeaks(CapturedOutput output) throws Exception {

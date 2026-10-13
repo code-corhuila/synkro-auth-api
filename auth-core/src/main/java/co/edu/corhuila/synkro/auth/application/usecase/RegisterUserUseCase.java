@@ -2,10 +2,15 @@ package co.edu.corhuila.synkro.auth.application.usecase;
 
 import co.edu.corhuila.synkro.auth.application.port.out.IdGenerator;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
+import co.edu.corhuila.synkro.auth.application.port.out.RegistrationAttemptLog;
+import co.edu.corhuila.synkro.auth.application.port.out.RegistrationAttemptLog.Reason;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore;
+import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore.CreationAttribution;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRegistrationStore.Registered;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
+import co.edu.corhuila.synkro.auth.domain.model.AuthenticatedCaller;
 import co.edu.corhuila.synkro.auth.domain.model.Emails;
+import co.edu.corhuila.synkro.auth.domain.model.Roles;
 import co.edu.corhuila.synkro.auth.domain.model.SystemUser;
 
 import java.time.Clock;
@@ -18,17 +23,30 @@ public class RegisterUserUseCase {
     private final PasswordHasher hasher;
     private final IdGenerator ids;
     private final Clock clock;
+    private final RegistrationAttemptLog attempts;
 
     public RegisterUserUseCase(UserRepository users, UserRegistrationStore registrations, PasswordHasher hasher,
-                               IdGenerator ids, Clock clock) {
+                               IdGenerator ids, Clock clock, RegistrationAttemptLog attempts) {
         this.users = users;
         this.registrations = registrations;
         this.hasher = hasher;
         this.ids = ids;
         this.clock = clock;
+        this.attempts = attempts;
     }
 
-    public RegisterUserResult execute(RegisterUserCommand command) {
+    public RegisterUserResult execute(AuthenticatedCaller caller, String correlationId, RegisterUserCommand command) {
+        try {
+            return register(caller, correlationId, command);
+        } catch (RuntimeException e) {
+            attempts.rejected(correlationId, caller == null ? null : caller.subject(), reasonOf(e));
+            throw e;
+        }
+    }
+
+    private RegisterUserResult register(AuthenticatedCaller caller, String correlationId, RegisterUserCommand command) {
+        requireHumanAdmin(caller);
+        requireExistingActor(caller);
         RegisterUserValidator.validate(command);
         String email = Emails.normalize(command.email());
 
@@ -44,8 +62,47 @@ public class RegisterUserUseCase {
         // PostgreSQL keeps microseconds; truncating here makes the response equal what a later read returns.
         SystemUser user = new SystemUser(ids.newId(), command.name(), email, hasher.hash(command.password()),
             command.role(), clock.instant().truncatedTo(ChronoUnit.MICROS), true);
-        Registered saved = registrations.registerOnce(command.idempotencyKey(), user);
+        CreationAttribution attribution = new CreationAttribution(ids.newId(), caller.subject(),
+            clock.instant().truncatedTo(ChronoUnit.MICROS), correlationId);
+        Registered saved = registrations.registerUserWithAttribution(command.idempotencyKey(), user, attribution);
         return saved.created() ? new RegisterUserResult(saved.user(), true) : replay(command, email, saved.user());
+    }
+
+    private static Reason reasonOf(RuntimeException failure) {
+        if (failure instanceof UnauthenticatedException) {
+            return Reason.UNAUTHENTICATED;
+        }
+        if (failure instanceof ForbiddenException) {
+            return Reason.FORBIDDEN;
+        }
+        if (failure instanceof ValidationException) {
+            return Reason.INVALID_REQUEST;
+        }
+        if (failure instanceof BusinessRuleViolationException) {
+            return Reason.BUSINESS_RULE;
+        }
+        return Reason.FAILED;
+    }
+
+    // Authorization comes before anything else, the idempotency lookup included: a caller that may not register
+    // must learn nothing about a key, so a replay is refused exactly like a first attempt.
+    private static void requireHumanAdmin(AuthenticatedCaller caller) {
+        if (caller == null) {
+            throw new UnauthenticatedException();
+        }
+        if (caller.isService()) {
+            throw new ForbiddenException("A service is not authorized to register users");
+        }
+        RoleGuard.requireAnyRole(caller, "register users", Roles.ADMIN);
+    }
+
+    // The token proves who the administrator is, not that the account is still there. A well-formed token for an
+    // administrator that does not exist gets the same generic refusal as any other caller that may not register, before
+    // the key or the email is read. A lookup that fails is not an absent actor: its exception propagates as a failure.
+    private void requireExistingActor(AuthenticatedCaller caller) {
+        if (users.findById(caller.subject()).isEmpty()) {
+            throw new ForbiddenException("The caller is not authorized to register users");
+        }
     }
 
     // A key is only an answer to the request that created it: anything else must not be shown that user.

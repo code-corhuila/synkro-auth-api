@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.*;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -18,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * envelope lives in {@link TokenAuthenticationHttpTest}.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(InMemoryAdaptersTestConfig.class)
 class AuthHttpTest {
 
     @DynamicPropertySource
@@ -43,6 +45,7 @@ class AuthHttpTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).contains("\"status\":\"ok\"");
         assertThat(response.getBody()).contains("\"service\":\"synkro-auth-api\"");
+        assertThat(response.getBody()).contains("\"database\":\"ok\"");
     }
 
     @Test

@@ -74,6 +74,11 @@ public class AuthBeansConfig {
     }
 
     @Bean
+    public DatabaseHealthProbe databaseHealthProbe(JdbcTemplate jdbc) {
+        return new JdbcDatabaseHealthProbe(jdbc, Duration.ofSeconds(3));
+    }
+
+    @Bean
     public UserRepository userRepository(JdbcTemplate jdbc) {
         return new JdbcUserRepository(jdbc);
     }

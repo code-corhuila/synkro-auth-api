@@ -19,6 +19,13 @@ class InMemoryAdaptersTestConfig {
         return new FakeUserRepository();
     }
 
+    /** The in-memory tests have no database to ask: the schema counts as reachable. */
+    @Bean
+    @Primary
+    DatabaseHealthProbe reachableDatabase() {
+        return () -> true;
+    }
+
     @Bean
     @Primary
     RefreshTokenStore fakeRefreshTokenStore() {

@@ -87,4 +87,63 @@ class RefreshUseCaseTest {
             .isInstanceOf(InvalidCredentialsException.class);
         assertThat(issuer.accessSubjects).isEmpty();
     }
+
+    @Test
+    void reusedToken_isRejected_andRevokesEveryActiveTokenOfItsOwner() {
+        LoginResult first = login.execute("ana@synkro.test", PASSWORD);
+        LoginResult second = refresh.execute(first.refreshToken());
+
+        assertThatThrownBy(() -> refresh.execute(first.refreshToken()))
+            .isInstanceOf(InvalidCredentialsException.class);
+
+        assertThat(store.revokedUsers).containsExactly("u-1");
+        assertThat(store.hashToUser).as("the token issued by the legitimate rotation").doesNotContainKey(HASH.hash(second.refreshToken()));
+    }
+
+    @Test
+    void reusedToken_leavesTheTokensOfOtherUsersUsable() {
+        LoginResult first = login.execute("ana@synkro.test", PASSWORD);
+        store.save(HASH.hash("someone-else"), "u-2", Fakes.NOW.plusSeconds(60));
+        refresh.execute(first.refreshToken());
+
+        assertThatThrownBy(() -> refresh.execute(first.refreshToken())).isInstanceOf(InvalidCredentialsException.class);
+
+        assertThat(store.hashToUser).containsEntry(HASH.hash("someone-else"), "u-2");
+    }
+
+    @Test
+    void unknownToken_revokesNothing() {
+        assertThatThrownBy(() -> refresh.execute("never-issued")).isInstanceOf(InvalidCredentialsException.class);
+
+        assertThat(store.revokedUsers).isEmpty();
+    }
+
+    @Test
+    void expiredToken_revokesNothing() {
+        store.save(HASH.hash("expired"), "u-1", Fakes.NOW.minusSeconds(1));
+
+        assertThatThrownBy(() -> refresh.execute("expired")).isInstanceOf(InvalidCredentialsException.class);
+
+        assertThat(store.revokedUsers).isEmpty();
+    }
+
+    @Test
+    void rotatedTokenThatAlsoExpired_revokesNothing() {
+        store.usedHashToUser.put(HASH.hash("old"), "u-1");
+        store.usedHashToExpiry.put(HASH.hash("old"), Fakes.NOW.minusSeconds(1));
+
+        assertThatThrownBy(() -> refresh.execute("old")).isInstanceOf(InvalidCredentialsException.class);
+
+        assertThat(store.revokedUsers).isEmpty();
+    }
+
+    @Test
+    void validToken_stillRotates_andRevokesNothing() {
+        LoginResult first = login.execute("ana@synkro.test", PASSWORD);
+
+        LoginResult second = refresh.execute(first.refreshToken());
+
+        assertThat(store.hashToUser).containsKey(HASH.hash(second.refreshToken()));
+        assertThat(store.revokedUsers).isEmpty();
+    }
 }

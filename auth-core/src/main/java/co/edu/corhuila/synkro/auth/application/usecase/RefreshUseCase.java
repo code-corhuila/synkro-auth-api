@@ -2,6 +2,7 @@ package co.edu.corhuila.synkro.auth.application.usecase;
 
 import co.edu.corhuila.synkro.auth.application.port.out.HashFunction;
 import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore;
+import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore.Consumption;
 import co.edu.corhuila.synkro.auth.application.port.out.TokenIssuer;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
 import co.edu.corhuila.synkro.auth.domain.model.SystemUser;
@@ -34,8 +35,15 @@ public class RefreshUseCase {
         }
         // Consuming first is what makes a replayed token fail: the old one is gone
         // before any new token is issued.
-        String userId = refreshTokenStore.consumeAndRotate(hashFunction.hash(refreshToken))
-            .orElseThrow(InvalidCredentialsException::new);
+        String userId = switch (refreshTokenStore.consume(hashFunction.hash(refreshToken))) {
+            case Consumption.Consumed consumed -> consumed.userId();
+            case Consumption.AlreadyUsed used -> {
+                // A replay means the token was copied (or submitted twice): the safe answer ends every session of its owner.
+                refreshTokenStore.revokeAllOf(used.userId());
+                throw new InvalidCredentialsException();
+            }
+            case Consumption.Unknown unknown -> throw new InvalidCredentialsException();
+        };
 
         SystemUser user = userRepository.findById(userId)
             .filter(SystemUser::isActive)

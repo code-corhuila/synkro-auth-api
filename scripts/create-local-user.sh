@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Creates a user in auth_schema.system_user for LOCAL development.
 #
-# There is no register endpoint until HU-AUTH-09 and synkro-auth-db seeds no users, so a local
-# database starts empty. This script hashes the password with bcrypt on your machine and inserts
-# the row as auth_app. Nothing is written to disk and no hash or password is committed anywhere.
+# POST /api/v1/auth/register is now the normal way to create a user (it is public). This script
+# remains for local convenience, e.g. to create an ADMIN without the API. It hashes the password
+# with bcrypt on your machine and inserts the row as auth_app. Nothing is written to disk and no
+# hash or password is committed anywhere. The email is lowercased, as the service does on register
+# and on login, so the user can log in.
 #
 #   scripts/create-local-user.sh <email> <name> <ADMIN|SALESPERSON|INVENTORY>
 #
@@ -18,7 +20,7 @@ if [ "$#" -ne 3 ]; then
   echo "usage: $0 <email> <name> <ADMIN|SALESPERSON|INVENTORY>" >&2
   exit 2
 fi
-email=$1
+email=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
 name=$2
 role=$3
 psql_cmd=${PSQL:-psql}

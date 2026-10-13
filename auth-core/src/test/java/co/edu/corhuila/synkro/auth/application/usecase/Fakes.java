@@ -29,13 +29,23 @@ final class Fakes {
     static final Duration REFRESH_TTL = Duration.ofDays(7);
 
     /** Fake "hash" is a prefix, so a test can tell a hash from the plaintext. */
-    static final PasswordHasher PASSWORD_HASHER = (plaintext, hash) -> hash.equals("hashed:" + plaintext);
+    static final PasswordHasher PASSWORD_HASHER = new PasswordHasher() {
+        @Override
+        public String hash(String plaintext) {
+            return "hashed:" + plaintext;
+        }
+
+        @Override
+        public boolean matches(String plaintext, String hash) {
+            return hash.equals("hashed:" + plaintext);
+        }
+    };
 
     /** Prefixing keeps the stored value distinguishable from the raw token. */
     static final HashFunction HASH = value -> "sha:" + value;
 
     static SystemUser user(String email, boolean active) {
-        return new SystemUser("u-1", "Ana", email, "hashed:" + PASSWORD, "ADMIN", active);
+        return new SystemUser("u-1", "Ana", email, "hashed:" + PASSWORD, "ADMIN", NOW, active);
     }
 
     static UserRepository users(SystemUser... users) {

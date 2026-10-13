@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class SystemUserTest {
 
     private static SystemUser userWithRole(String role) {
-        return new SystemUser("u-1", "Ana", "ana@synkro.test", "hash", role, true);
+        return new SystemUser("u-1", "Ana", "ana@synkro.test", "hash", role, java.time.Instant.parse("2026-01-01T00:00:00Z"), true);
     }
 
     @ParameterizedTest

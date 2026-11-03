@@ -137,4 +137,61 @@ failure of the harness itself is fixed in the harness and is not reported as a f
 
 ## 7. Execution record
 
-Filled below only with runs that were executed; see the evidence section appended after the runs.
+Executed on 2026-11-02 on one Windows 11 workstation, Docker Desktop, Java 21, Maven 3.9.9 (offline, shared `~/.m2`).
+Evidence is sanitized: no password, token, hash or response body is recorded.
+
+**Revisions that ran.** Auth code and tests: `eb20ffe` (branch `test/verify-admin-user-registration`, base `develop` 38ed031).
+This story changed no production file, so the production sources are those of 38ed031. Schema: `synkro-auth-db` @ `c338bf95`
+through `flyway/flyway:11.20.3-alpine`. Gateway: `synkro-api-gateway` @ `24a4ab1` (`nginx:1.27-alpine`). PostgreSQL
+`postgres:16.15-alpine3.23`. The Auth image was built from `deploy/Dockerfile` at `eb20ffe`. Commits after `eb20ffe` change
+only this document.
+
+| # | Level | Scope | Result |
+|---|---|---|---|
+| R1 | Unit + controlled HTTP, no database | `mvn -o verify` at 38ed031 | core 189 pass; adapters 122 and app 185 run, with 74 and 76 database tests **skipped** (no evidence for those) |
+| R2 | Real PostgreSQL (owned `auth15-pg`) | `mvn -o verify` at 38ed031 with `TEST_DATABASE_*` | BUILD SUCCESS; adapters 122, app 216, 0 skipped; every JaCoCo gate met |
+| R3 | Real PostgreSQL | same at `eb20ffe` | BUILD SUCCESS; core 189, adapters 122, app 218 (+2: the new replay case), 0 failed, 0 skipped; every JaCoCo gate met (domain ≥ 90 %, application ≥ 80 %, global ≥ 80 %, infrastructure ≥ 60 % per package) |
+| R4 | Real stack: Gateway → Auth image → PostgreSQL | `scripts/auth15/e2e.mjs` at `eb20ffe` | 52 of 52 checks pass (ids E2E-01…34; some ids repeat per variant). An earlier run of the same script on an image built at 59fda2d, with the same production code, also passed 52 of 52 |
+
+The first R4 attempt failed in the harness, not in the product: the `verify` run had left an ADMIN in the owned database, so
+the fixture's own ADMIN did not exist. The harness gained a guarded `reset` and a clear exit; this is not a functional RED.
+The first version of the new HTTP case also failed (a user-count difference) because the token helper stores the caller
+before the snapshot; the test was corrected, not the product. Neither is a reproduced defect.
+
+**Result.** No defect was reproduced in registration, replay, authorization, persistence or redaction. No production change,
+no RED/GREEN pair, no migration and no contract change were therefore made. The coverage of the existing suites was preserved.
+
+### Acceptance criteria and executed evidence
+
+| Criterion | Executed evidence | Limits |
+|---|---|---|
+| AUTH15-01 | R4 E2E-01…07 (real login of the ADMIN, 201 + Location, safe read, login of the new account, each human role); R2/R3 existing suites | one disposable ADMIN created by the HU-AUTH-14 command in an owned database |
+| AUTH15-02 | R4 E2E-11…17 (401 for seven credential faults; 403 for SALESPERSON, INVENTORY and SERVICE on a first attempt and on a replay; no row changed); R3 new case `forbidden_aValidTokenForAnotherHumanRole_replayingAKeyThatCreatedAUser_…` | the expired, other-key and `alg:none` tokens are signed with the fixture's own key; the shared ADMIN-only case belongs to #280, which can cite this evidence instead of repeating it |
+| AUTH15-03 | R4 E2E-18…26 (replay 200 once; replay by another ADMIN; changed intention 422; duplicate email 422 in any case; ten invalid inputs 400; eight simultaneous requests give one 201 and seven 200) | a replay by a different ADMIN returns the original user with 200 and writes no second audit row; the contract says no more than "authorized replay", so this is recorded as current behavior |
+| AUTH15-04 | R4 E2E-08…10 and 27…34 (bcrypt hash; one attributed audit row; a failing audit insert rolls back user and key and the key is reusable; rows identical after a PostgreSQL restart and an Auth restart; no secret in Auth logs, Gateway logs, audit or key rows); R2/R3 existing rollback and grant tests | restart of a single-node container, not a failover; the fault is an owned `REVOKE`/`GRANT` on the disposable database |
+
+### Not covered
+
+- The users web screen (HU-AUTH-16) and any browser flow.
+- Access tokens of a deactivated ADMIN stay valid until they expire (ADR-017); not exercised here.
+- Gateway rate limiting beyond staying inside the login budget; the script restarts the owned Gateway to start each run with
+  a fresh budget.
+- Linux CI: `ci.yml` has not run for this branch yet. All runs above are local on Windows.
+- Test-account credentials were not requested; none is delivered or stored.
+
+### Cleanup
+
+`fixture.sh down` removed `auth15-gateway`, `auth15-auth-api`, `auth15-pg`, the volume `auth15-pgdata`, the network
+`auth15-net` and the `auth15/*` images by exact name. The private directory with the generated secrets was deleted and the
+`HEAVY-DOCKER.lock` created by this task was removed by its owner. Base images pulled for the builds remain in the shared
+Docker cache and were not pruned. The synkro-dev project, the `platform` network and every INF-06 and FE-09 resource were not
+touched.
+
+### Re-running
+
+```bash
+export AUTH15_PRIVATE_DIR=/private/dir/outside/the/repo
+scripts/auth15/fixture.sh up        # take the HEAVY-DOCKER.lock lease first while INF-06 is active
+node scripts/auth15/e2e.mjs --evidence /private/dir/evidence.json
+scripts/auth15/fixture.sh down
+```

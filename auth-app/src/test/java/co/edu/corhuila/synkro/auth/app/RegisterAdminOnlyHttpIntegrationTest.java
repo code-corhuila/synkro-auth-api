@@ -208,6 +208,28 @@ class RegisterAdminOnlyHttpIntegrationTest {
         assertThat(rows()).isEqualTo(before);
     }
 
+    // AUTH15-02: a refused human caller may not replay an authorized request either, whatever key it knows.
+    @ParameterizedTest
+    @ValueSource(strings = {"SALESPERSON", "INVENTORY"})
+    @Tag("AUTH-REG-02")
+    void forbidden_aValidTokenForAnotherHumanRole_replayingAKeyThatCreatedAUser_is403_andTheUserIsNotDisclosed(String role) throws Exception {
+        String email = DatabaseTestSupport.uniqueEmail();
+        String key = newKey();
+        ResponseEntity<String> created = register(request(email, "SALESPERSON"), key, tokenOf("ADMIN"));
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String userId = body(created).get("userId").asText();
+        String token = tokenOf(role); // the helper stores the caller as a user, so it runs before the snapshot
+        Rows before = rows();
+
+        ResponseEntity<String> replay = register(request(email, "SALESPERSON"), key, token);
+
+        assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(replay.getBody()).doesNotContain(email).doesNotContain(userId);
+        assertThat(replay.getHeaders().getLocation()).isNull();
+        assertThat(rows()).isEqualTo(before);
+        assertThat(auditRowsOf(userId)).isEqualTo(1);
+    }
+
     @Test
     @Tag("AUTH-REG-02")
     void authorized_anAdminToken_proceedsPastAuthorization() {

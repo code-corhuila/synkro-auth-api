@@ -29,6 +29,7 @@ import co.edu.corhuila.synkro.auth.application.usecase.LoginUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.LogoutUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.RefreshUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.RegisterUserUseCase;
+import co.edu.corhuila.synkro.auth.application.usecase.SearchUsersUseCase;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -144,6 +145,11 @@ public class AuthBeansConfig {
     @Bean
     public GetUserUseCase getUserUseCase(UserRepository users) {
         return new GetUserUseCase(users);
+    }
+
+    @Bean
+    public SearchUsersUseCase searchUsersUseCase(UserRepository users) {
+        return new SearchUsersUseCase(users);
     }
 
     @Bean

@@ -37,6 +37,11 @@ class GetUserUseCaseTest {
                 lookups.incrementAndGet();
                 return stored.findById(userId);
             }
+
+            @Override
+            public SearchResult search(SearchCriteria criteria) {
+                return stored.search(criteria);
+            }
         };
         getUser = new GetUserUseCase(counting);
     }

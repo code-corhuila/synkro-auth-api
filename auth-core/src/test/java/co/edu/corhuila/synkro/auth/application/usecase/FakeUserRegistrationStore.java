@@ -59,4 +59,9 @@ class FakeUserRegistrationStore implements UserRegistrationStore, UserRepository
         Optional<SystemUser> registered = byEmail.values().stream().filter(u -> u.getUserId().equals(userId)).findFirst();
         return registered.isPresent() ? registered : Optional.ofNullable(actors.get(userId));
     }
+
+    @Override
+    public SearchResult search(SearchCriteria criteria) {
+        throw new UnsupportedOperationException("Registration tests do not search users");
+    }
 }

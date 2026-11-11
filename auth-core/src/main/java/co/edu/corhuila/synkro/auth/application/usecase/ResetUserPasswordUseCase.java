@@ -50,6 +50,17 @@ public class ResetUserPasswordUseCase {
         }
     }
 
+    /** Authorizes the transport before it decodes input; execute also checks again before any reset or replay. */
+    public void authorizeBeforeDecoding(AuthenticatedCaller caller, String correlationId) {
+        try {
+            requireHumanAdmin(caller);
+            requireActiveActor(caller);
+        } catch (RuntimeException failure) {
+            attempts.rejected(correlationId, caller == null ? null : caller.subject(), null, reasonOf(failure));
+            throw failure;
+        }
+    }
+
     private ResetUserPasswordResult reset(AuthenticatedCaller caller, String correlationId, ResetUserPasswordCommand command) {
         requireHumanAdmin(caller);
         requireActiveActor(caller);

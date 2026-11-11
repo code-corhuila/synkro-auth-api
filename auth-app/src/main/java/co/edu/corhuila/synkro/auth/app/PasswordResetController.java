@@ -5,18 +5,24 @@ import co.edu.corhuila.synkro.auth.application.usecase.ResetUserPasswordResult;
 import co.edu.corhuila.synkro.auth.application.usecase.ResetUserPasswordUseCase;
 import co.edu.corhuila.synkro.auth.domain.model.AuthenticatedCaller;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.http.server.ServletServerHttpRequest;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.io.IOException;
+import java.util.List;
 
 /**
  * resetUserPassword of ADR-021 (HU-AUTH-19): an ADMIN replaces the password of another user. The controller only
@@ -35,21 +41,44 @@ public class PasswordResetController {
     }
 
     private final ResetUserPasswordUseCase resetUserPassword;
+    private final ObjectMapper json;
 
-    public PasswordResetController(ResetUserPasswordUseCase resetUserPassword) {
+    public PasswordResetController(ResetUserPasswordUseCase resetUserPassword, ObjectMapper json) {
         this.resetUserPassword = resetUserPassword;
+        this.json = json;
     }
 
     @PostMapping("/users/{id}/password-reset")
     public ResponseEntity<PasswordResetResponse> reset(@AuthenticationPrincipal AuthenticatedCaller caller,
                                                        HttpServletRequest http,
                                                        @PathVariable("id") String id,
-                                                       @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
-                                                       @RequestBody JsonNode body) {
+                                                       @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey)
+            throws HttpMediaTypeNotSupportedException {
+        resetUserPassword.authorizeBeforeDecoding(caller, CorrelationIdFilter.idOf(http));
+        JsonNode body = readBody(http);
         ResetUserPasswordResult result = resetUserPassword.execute(caller, CorrelationIdFilter.idOf(http),
             new ResetUserPasswordCommand(id, idempotencyKey, text(body, "newPassword"), text(body, "confirmPassword")));
         // A reset answer is about a credential change: it is never cached, a replay's included.
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(PasswordResetResponse.of(result));
+    }
+
+    // Reading JSON through an MVC argument converter would answer 400/415 before the authorization policy runs.
+    private JsonNode readBody(HttpServletRequest http) throws HttpMediaTypeNotSupportedException {
+        MediaType contentType = http.getContentType() == null ? MediaType.APPLICATION_OCTET_STREAM
+            : MediaType.parseMediaType(http.getContentType());
+        if (!MediaType.APPLICATION_JSON.includes(contentType)
+                && !new MediaType("application", "*+json").includes(contentType)) {
+            throw new HttpMediaTypeNotSupportedException(contentType, List.of(MediaType.APPLICATION_JSON));
+        }
+        try {
+            JsonNode body = json.readTree(http.getInputStream());
+            if (body == null || body.isMissingNode()) {
+                throw new HttpMessageNotReadableException("Missing JSON body", new ServletServerHttpRequest(http));
+            }
+            return body;
+        } catch (IOException failure) {
+            throw new HttpMessageNotReadableException("Invalid JSON body", failure, new ServletServerHttpRequest(http));
+        }
     }
 
     // Anything that is not a JSON string is "not there": a number is never turned into a password, and the use case

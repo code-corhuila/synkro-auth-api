@@ -37,7 +37,7 @@ jobs:
           cache: "maven"
       - name: Build and test
         run: mvn -B verify
-      - name: Architecture check — auth-core has no Spring dependency
+      - name: Architecture check â€” auth-core has no Spring dependency
         # dependency:tree prints at INFO level, so `-q` would silence it and the grep
         # would always pass; the tree is written to a file instead.
         run: |
@@ -67,6 +67,7 @@ jobs:
       # password_reset_receipt with its grants and the cleanup function (V022-V026, ADR-021). Once that PR is merged into
       # develop, move this pin to the merge commit; it must not stay on a feature-branch commit.
       AUTH_DB_REF: 8b9b2c4df44223be449719e2f2391be88b08a141
+      AUTH_PORTAL_REF: 4ef4a3a4da20492da6eeb50f4417b88f1332a15b
       # The tag synkro-auth-db's own CI and deploy/compose.yml run.
       FLYWAY_IMAGE: flyway/flyway:11.20.3-alpine
       # The database every step below uses. Its exclusive name is also the identity that the tests which empty
@@ -91,6 +92,12 @@ jobs:
           repository: code-corhuila/synkro-auth-db
           ref: ${{ env.AUTH_DB_REF }}
           path: synkro-auth-db
+
+      - uses: actions/checkout@v4
+        with:
+          repository: code-corhuila/synkro-auth-portal
+          ref: ${{ env.AUTH_PORTAL_REF }}
+          path: synkro-auth-portal
 
       - uses: actions/setup-java@v4
         with:
@@ -259,3 +266,20 @@ jobs:
             echo "::error::An HTTP listener is open: the initialization command must not start the server"
             exit 1
           fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/pact/package-lock.json
+      - name: Install pinned Pact verifier
+        run: npm ci --prefix tests/pact
+      - name: Verify the consumer artifact provenance
+        run: node tests/pact/check-provenance.mjs synkro-auth-portal
+      - name: Verify the Auth Portal contract against the real Auth provider
+        env:
+          PGHOST: localhost
+          PGPORT: '5432'
+          PGUSER: postgres
+          PGPASSWORD: ci_admin_pw
+        run: bash tests/pact/ci-provider.sh

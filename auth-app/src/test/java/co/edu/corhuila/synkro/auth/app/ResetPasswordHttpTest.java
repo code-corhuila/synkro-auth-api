@@ -111,6 +111,50 @@ class ResetPasswordHttpTest {
 
     // ── 401 / 403 ────────────────────────────────────────────────────
 
+    @ParameterizedTest
+    @ValueSource(strings = {"SALESPERSON", "INVENTORY", "SERVICE"})
+    void forbiddenCallerIsRejectedBeforeAMissingBody(String role) throws Exception {
+        var response = reset(tokenFor(SALES_ID, role), SALES_ID, "reset-auth-first-empty", null);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(body(response).get("error").asText()).isEqualTo("FORBIDDEN");
+        assertThat(store.calls).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SALESPERSON", "INVENTORY", "SERVICE"})
+    void forbiddenCallerIsRejectedBeforeMalformedJson(String role) throws Exception {
+        var response = reset(tokenFor(SALES_ID, role), SALES_ID, "reset-auth-first-json", "{");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(body(response).get("error").asText()).isEqualTo("FORBIDDEN");
+        assertThat(store.calls).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SALESPERSON", "INVENTORY", "SERVICE"})
+    void forbiddenCallerIsRejectedBeforeUnsupportedContentType(String role) throws Exception {
+        var headers = new HttpHeaders();
+        headers.setContentType(MediaType.TEXT_PLAIN);
+        headers.setBearerAuth(tokenFor(SALES_ID, role));
+        headers.set("Idempotency-Key", "reset-auth-first-media");
+        var response = http.exchange("http://localhost:" + port + "/api/v1/auth/users/" + SALES_ID + "/password-reset",
+            HttpMethod.POST, new HttpEntity<>("{}", headers), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(body(response).get("error").asText()).isEqualTo("FORBIDDEN");
+        assertThat(store.calls).isEmpty();
+    }
+
+    @Test
+    void anAuthorizedCallerStillReceives415ForUnsupportedContentType() {
+        var headers = new HttpHeaders();
+        headers.setContentType(MediaType.TEXT_PLAIN);
+        headers.setBearerAuth(tokenFor(ADMIN_ID, "ADMIN"));
+        headers.set("Idempotency-Key", "reset-admin-media");
+        var response = http.exchange("http://localhost:" + port + "/api/v1/auth/users/" + SALES_ID + "/password-reset",
+            HttpMethod.POST, new HttpEntity<>("{}", headers), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+        assertThat(store.calls).isEmpty();
+    }
+
     @Test
     @Tag("AUTH-RESET-04")
     void noToken_is401_andNothingIsHandedToTheStore() {

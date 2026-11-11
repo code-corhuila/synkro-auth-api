@@ -265,6 +265,6 @@ class LoginVersusResetIntegrationTest {
         // A login may be refused (the reset won) and that is the contract; a deadlock or any other failure is not.
         assertThat(failures).allSatisfy(f -> assertThat(f).isExactlyInstanceOf(InvalidCredentialsException.class));
         assertThat(activeRefreshRows()).as("whatever the order, no credential issued before a reset survives it")
-            .isLessThanOrEqualTo(4);
+            .isZero();
     }
 }

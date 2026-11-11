@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -76,6 +77,22 @@ final class Fakes {
             @Override
             public Optional<SystemUser> findById(String userId) {
                 return Optional.ofNullable(byId.get(userId));
+            }
+
+            @Override
+            public SearchResult search(SearchCriteria criteria) {
+                List<SystemUser> matches = new ArrayList<>(byId.values());
+                matches.sort(Comparator.comparing(SystemUser::getRegistrationDate).reversed()
+                    .thenComparing(SystemUser::getUserId));
+                matches.removeIf(u -> criteria.role() != null && !criteria.role().equals(u.getRole()));
+                if (criteria.query() != null) {
+                    String needle = criteria.query().toLowerCase(java.util.Locale.ROOT);
+                    matches.removeIf(u -> !u.getName().toLowerCase(java.util.Locale.ROOT).contains(needle)
+                        && !u.getEmail().toLowerCase(java.util.Locale.ROOT).contains(needle));
+                }
+                int from = Math.min((criteria.page() - 1) * criteria.limit(), matches.size());
+                int to = Math.min(from + criteria.limit(), matches.size());
+                return new SearchResult(matches.subList(from, to), matches.size());
             }
         };
     }

@@ -5,7 +5,9 @@ import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
 import co.edu.corhuila.synkro.auth.domain.model.SystemUser;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -38,5 +40,20 @@ class FakeUserRepository implements UserRepository {
     @Override
     public Optional<SystemUser> findById(String userId) {
         return users.stream().filter(u -> u.getUserId().equals(userId)).findFirst();
+    }
+
+    @Override
+    public SearchResult search(SearchCriteria criteria) {
+        List<SystemUser> matches = new java.util.ArrayList<>(users);
+        matches.sort(Comparator.comparing(SystemUser::getRegistrationDate).reversed().thenComparing(SystemUser::getUserId));
+        matches.removeIf(u -> criteria.role() != null && !criteria.role().equals(u.getRole()));
+        if (criteria.query() != null) {
+            String needle = criteria.query().toLowerCase(Locale.ROOT);
+            matches.removeIf(u -> !u.getName().toLowerCase(Locale.ROOT).contains(needle)
+                && !u.getEmail().toLowerCase(Locale.ROOT).contains(needle));
+        }
+        int from = Math.min((criteria.page() - 1) * criteria.limit(), matches.size());
+        int to = Math.min(from + criteria.limit(), matches.size());
+        return new SearchResult(matches.subList(from, to), matches.size());
     }
 }

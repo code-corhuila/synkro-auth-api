@@ -15,5 +15,14 @@ final class SystemUserRows {
         rs.getString("password_hash"), rs.getString("role"),
         rs.getObject("registration_date", OffsetDateTime.class).toInstant(), rs.getBoolean("active"));
 
+    /** The search directory (HU-AUTH-18, issue #297) never selects password_hash: safe projection at the SQL level. */
+    static final String SEARCH_COLUMNS =
+        "u.user_id::text AS user_id, u.name, u.email, u.role, u.registration_date, u.active";
+
+    static final RowMapper<SystemUser> TO_SEARCH_RESULT = (rs, row) -> new SystemUser(
+        rs.getString("user_id"), rs.getString("name"), rs.getString("email"),
+        null, rs.getString("role"),
+        rs.getObject("registration_date", OffsetDateTime.class).toInstant(), rs.getBoolean("active"));
+
     private SystemUserRows() {}
 }

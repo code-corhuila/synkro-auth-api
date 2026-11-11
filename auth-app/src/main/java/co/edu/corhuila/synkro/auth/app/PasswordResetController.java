@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
+import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.server.ServletServerHttpRequest;
@@ -64,14 +65,23 @@ public class PasswordResetController {
 
     // Reading JSON through an MVC argument converter would answer 400/415 before the authorization policy runs.
     private JsonNode readBody(HttpServletRequest http) throws HttpMediaTypeNotSupportedException {
-        MediaType contentType = http.getContentType() == null ? MediaType.APPLICATION_OCTET_STREAM
-            : MediaType.parseMediaType(http.getContentType());
-        if (!MediaType.APPLICATION_JSON.includes(contentType)
-                && !new MediaType("application", "*+json").includes(contentType)) {
-            throw new HttpMediaTypeNotSupportedException(contentType, List.of(MediaType.APPLICATION_JSON));
-        }
         try {
-            JsonNode body = json.readTree(http.getInputStream());
+            byte[] input = http.getInputStream().readAllBytes();
+            if (input.length == 0) {
+                throw new HttpMessageNotReadableException("Missing JSON body", new ServletServerHttpRequest(http));
+            }
+            MediaType contentType;
+            try {
+                contentType = http.getContentType() == null ? MediaType.APPLICATION_OCTET_STREAM
+                    : MediaType.parseMediaType(http.getContentType());
+            } catch (InvalidMediaTypeException invalid) {
+                throw new HttpMediaTypeNotSupportedException(MediaType.APPLICATION_OCTET_STREAM, List.of(MediaType.APPLICATION_JSON));
+            }
+            if (!MediaType.APPLICATION_JSON.includes(contentType)
+                    && !new MediaType("application", "*+json").includes(contentType)) {
+                throw new HttpMediaTypeNotSupportedException(contentType, List.of(MediaType.APPLICATION_JSON));
+            }
+            JsonNode body = json.readTree(input);
             if (body == null || body.isMissingNode()) {
                 throw new HttpMessageNotReadableException("Missing JSON body", new ServletServerHttpRequest(http));
             }

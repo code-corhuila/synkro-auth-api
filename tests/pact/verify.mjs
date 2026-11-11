@@ -83,6 +83,8 @@ try{
     console.log('Pact negative control: incompatible Auth provider reached and rejected');
   }finally{await new Promise(resolve=>incompatible.close(resolve));}
   await new Verifier({...options,providerBaseUrl:base,stateHandlers:states,requestFilter:(req,res,next)=>{
+    // Pact's own state callback passes through this middleware before the HTTP interaction does.
+    if(req.path==='/_pactSetup'){next();return;}
     const c=contexts.get(req.headers['idempotency-key']);
     assert.ok(c,'Unknown contract interaction');
     req.headers.authorization='Bearer '+c.token;

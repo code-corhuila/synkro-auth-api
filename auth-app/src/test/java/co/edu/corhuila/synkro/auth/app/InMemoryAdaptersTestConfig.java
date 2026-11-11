@@ -31,4 +31,11 @@ class InMemoryAdaptersTestConfig {
     RefreshTokenStore fakeRefreshTokenStore() {
         return new FakeRefreshTokenStore();
     }
+
+    /** Declared with its own type so a test can inject it and read what the use case handed over. */
+    @Bean
+    @Primary
+    FakePasswordResetStore fakePasswordResetStore() {
+        return new FakePasswordResetStore();
+    }
 }

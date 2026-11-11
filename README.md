@@ -393,6 +393,85 @@ curl -s -X POST http://localhost:8080/api/v1/auth/register \
 curl -s http://localhost:8080/api/v1/auth/users/<userId> -H "Authorization: Bearer <ADMIN access token>"
 ```
 
+## Users: password reset by an ADMIN
+
+HU-AUTH-19. Status of the decision: [ADR-021](https://github.com/code-corhuila/synkro-docs/blob/docs/admin-password-reset-decision/05-architecture/decisions/records/ADR-021-admin-password-reset.md)
+is **`Proposed`**, not accepted (the link is to the proposal branch until it is published); this section describes what
+the code does, not an accepted contract.
+
+| Endpoint | Who | Success |
+|---|---|---|
+| `POST /api/v1/auth/users/{id}/password-reset` | A human `ADMIN` whose account exists and is active, decided in `ResetUserPasswordUseCase` itself | `200 { "userId", "passwordResetAt" }` with `Cache-Control: no-store`; the same body on a replay |
+
+Request: `Idempotency-Key` header (8–128 characters, **required**) and body `{ "newPassword", "confirmPassword" }`. The new
+password follows the registration policy (8 characters to 72 UTF-8 bytes) and `confirmPassword` must equal it. The
+password travels only in the body: it is never in the URL, the response, an error, the audit row or a log, and a value
+that is not a JSON string is treated as missing, never converted. Fields the contract does not name are ignored: the
+actor is the verified token's subject, and no body field or header can name another one.
+
+**Order of the checks** (nothing below a check runs before it passes): `401` for no or an invalid token, then `403` for a
+`SERVICE` token, a role other than `ADMIN`, or an administrator account that is missing or no longer active (stricter
+than registration, which only checks that it exists), then `400` for the request (malformed `id`, missing or
+out-of-range key, password outside the policy, confirmation that differs; no message repeats a value), then the lookup
+of the key, then `404` for an unknown target, then `422` on `id` for a target that is an `ADMIN` or inactive, then the
+unit below. So a refused caller learns nothing about a key, and an administrator can never reset **themselves or
+another administrator**: the last usable administrator is protected by construction. That is also why this is not an
+administrator-recovery path (TD-009 stays open).
+
+**The unit.** `JdbcPasswordResetStore` runs four writes in one transaction on one connection, started by the adapter
+and invisible to the use case: it claims the key by inserting the `password_reset_audit` row, takes the per-owner
+advisory lock that a refresh rotation also takes, replaces the target's hash (`WHERE active AND role <> 'ADMIN'`,
+checked again here) and sets `active = false` on every active refresh token of the target. If any write fails, all are
+undone: no key, no audit row, no new hash, no revocation. The hash is computed before the transaction, so no lock is held
+during bcrypt. The audit row holds the actor, the target, the key, the UTC time and the correlation id; it holds no
+password, hash, token or body, and it is the only record of the key.
+
+**Replay.** The key belongs to the administrator that used it (`UNIQUE (actor_user_id, idempotency_key)`): another
+administrator using the same text has a different key, and nobody can read or repeat another's reset. The same key from
+the same actor with an *equivalent* request answers `200` with the first execution's body and changes nothing: no new
+hash, no revocation (so a session the target opened after the reset survives the replay), no second audit row. Equivalent
+means the same target and a password that the target's **current** bcrypt hash verifies; nothing of the first request
+is stored to compare against, so no new password-derived material exists at rest. The cost is that after the target's
+password changes again, an older key is refused. The same key with another target or password is `422` on
+`Idempotency-Key`. Two simultaneous requests with one key execute once; both answer `200`.
+
+**An uncertain outcome.** A `500` (persistence failure, or a response lost after the commit) does not say whether the
+change was applied. The answer is to repeat the **same** request with the **same** key: it executes if nothing was
+committed and answers from the record if it was. Do not generate a new key for a retry, and never reconcile by trying
+to log in as the target.
+
+**What a reset does not do.** It revokes refresh tokens only. An access token already issued is stateless and stays valid
+until it expires, at most about one hour ([ADR-017](https://github.com/code-corhuila/synkro-docs/blob/main/05-architecture/decisions/records/ADR-017-refresh-reuse-and-jwt-revocation-boundaries.md));
+no immediate revocation is claimed. Revoked rows are `active = false` but unexpired, so a stale device that later
+presents an old refresh token triggers the existing reuse detection, which revokes every active refresh token of that
+owner, including one opened after the reset. A login that verified the old password just before the commit and stores
+its refresh token just after it leaves one refresh token obtained with the retired password. There is no forced
+password change at the next login.
+
+| Status | `error` | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | step 3 above |
+| 401 | `UNAUTHORIZED` | no or an invalid token |
+| 403 | `FORBIDDEN` | `SALESPERSON`, `INVENTORY` or `SERVICE` token, or an administrator whose account is missing or inactive |
+| 404 | `NOT_FOUND` | the target does not exist |
+| 422 | `BUSINESS_RULE_VIOLATION` | the target is an `ADMIN` (the caller included) or inactive, or the key was used with a different request |
+| 500 | `INTERNAL_ERROR` | persistence failure: the outcome is uncertain, see above |
+
+**Rejected attempts are not audit records.** `password_reset_audit` holds committed resets only. A `401`, `403`, `400`,
+`404`, `422` or a failure is one `WARN` line in the security log (`event=PASSWORD_RESET_REJECTED`) with the correlation
+id, the caller, the target when it is a well-formed id, and the reason, never a password, key, token or body.
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/auth/users/<userId>/password-reset \
+  -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
+  -H "Authorization: Bearer <ADMIN access token>" \
+  -d '{"newPassword":"<at least 8 characters>","confirmPassword":"<the same>"}'
+# 200 {"userId":"…","passwordResetAt":"…"}
+```
+
+The new table comes from `synkro-auth-db` (V018 to V021), so this repository's CI pins `AUTH_DB_REF` to a commit that
+has it: the database change is integrated first, then the pin is moved to the merged commit.
+
 ## Sessions: logout and refresh-token reuse
 
 | Endpoint | Who | Success |

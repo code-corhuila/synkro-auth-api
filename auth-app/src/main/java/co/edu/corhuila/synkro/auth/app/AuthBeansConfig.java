@@ -5,6 +5,7 @@ import co.edu.corhuila.synkro.auth.adapter.out.crypto.Rs256ServiceTokenSigner;
 import co.edu.corhuila.synkro.auth.adapter.out.crypto.Rs256TokenIssuer;
 import co.edu.corhuila.synkro.auth.adapter.out.crypto.Rs256TokenVerifier;
 import co.edu.corhuila.synkro.auth.adapter.out.crypto.Sha256HashFunction;
+import co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc.JdbcPasswordResetStore;
 import co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc.JdbcRefreshTokenStore;
 import co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc.JdbcServiceTokenRepository;
 import co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc.JdbcServiceTokenStore;
@@ -14,6 +15,8 @@ import co.edu.corhuila.synkro.auth.application.port.out.AccessTokenVerifier;
 import co.edu.corhuila.synkro.auth.application.port.out.HashFunction;
 import co.edu.corhuila.synkro.auth.application.port.out.IdGenerator;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
+import co.edu.corhuila.synkro.auth.application.port.out.PasswordResetAttemptLog;
+import co.edu.corhuila.synkro.auth.application.port.out.PasswordResetStore;
 import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore;
 import co.edu.corhuila.synkro.auth.application.port.out.RegistrationAttemptLog;
 import co.edu.corhuila.synkro.auth.application.port.out.ServiceTokenRepository;
@@ -29,6 +32,7 @@ import co.edu.corhuila.synkro.auth.application.usecase.LoginUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.LogoutUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.RefreshUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.RegisterUserUseCase;
+import co.edu.corhuila.synkro.auth.application.usecase.ResetUserPasswordUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.SearchUsersUseCase;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -130,8 +134,10 @@ public class AuthBeansConfig {
         return new GetServiceTokenUseCase(tokens);
     }
 
+    // One instance serves both security-log ports. It is declared with its own type because Spring matches a bean by what
+    // it really is: two methods that each returned a new SecurityLog would leave two candidates for either port.
     @Bean
-    public RegistrationAttemptLog registrationAttemptLog() {
+    SecurityLog securityLog() {
         return new SecurityLog();
     }
 
@@ -140,6 +146,20 @@ public class AuthBeansConfig {
                                                    PasswordHasher hasher, IdGenerator ids, Clock clock,
                                                    RegistrationAttemptLog attempts) {
         return new RegisterUserUseCase(users, registrations, hasher, ids, clock, attempts);
+    }
+
+    // The transaction is opened by the adapter, as for registration: the new hash, the revocation of the target's
+    // refresh tokens and the audit record commit together or not at all.
+    @Bean
+    public PasswordResetStore passwordResetStore(JdbcTemplate jdbc, TransactionOperations transactions) {
+        return new JdbcPasswordResetStore(jdbc, transactions);
+    }
+
+    @Bean
+    public ResetUserPasswordUseCase resetUserPasswordUseCase(UserRepository users, PasswordResetStore resets,
+                                                             PasswordHasher hasher, IdGenerator ids, Clock clock,
+                                                             PasswordResetAttemptLog attempts) {
+        return new ResetUserPasswordUseCase(users, resets, hasher, ids, clock, attempts);
     }
 
     @Bean

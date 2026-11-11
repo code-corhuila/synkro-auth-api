@@ -1,5 +1,6 @@
 package co.edu.corhuila.synkro.auth.app;
 
+import co.edu.corhuila.synkro.auth.application.port.out.PasswordResetAttemptLog;
 import co.edu.corhuila.synkro.auth.application.usecase.ResetUserPasswordCommand;
 import co.edu.corhuila.synkro.auth.application.usecase.ResetUserPasswordResult;
 import co.edu.corhuila.synkro.auth.application.usecase.ResetUserPasswordUseCase;
@@ -25,6 +26,7 @@ import java.time.Instant;
 import java.io.IOException;
 import java.io.PushbackInputStream;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * resetUserPassword of ADR-021 (HU-AUTH-19): an ADMIN replaces the password of another user. The controller only
@@ -44,10 +46,12 @@ public class PasswordResetController {
 
     private final ResetUserPasswordUseCase resetUserPassword;
     private final ObjectMapper json;
+    private final PasswordResetAttemptLog attempts;
 
-    public PasswordResetController(ResetUserPasswordUseCase resetUserPassword, ObjectMapper json) {
+    public PasswordResetController(ResetUserPasswordUseCase resetUserPassword, ObjectMapper json, PasswordResetAttemptLog attempts) {
         this.resetUserPassword = resetUserPassword;
         this.json = json;
+        this.attempts = attempts;
     }
 
     @PostMapping("/users/{id}/password-reset")
@@ -57,11 +61,27 @@ public class PasswordResetController {
                                                        @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey)
             throws HttpMediaTypeNotSupportedException {
         resetUserPassword.authorizeBeforeDecoding(caller, CorrelationIdFilter.idOf(http));
-        JsonNode body = readBody(http);
+        JsonNode body;
+        try {
+            body = readBody(http);
+        } catch (HttpMessageNotReadableException | HttpMediaTypeNotSupportedException failure) {
+            attempts.rejected(CorrelationIdFilter.idOf(http), caller.subject(), targetForLog(id),
+                PasswordResetAttemptLog.Reason.INVALID_REQUEST);
+            throw failure;
+        }
         ResetUserPasswordResult result = resetUserPassword.execute(caller, CorrelationIdFilter.idOf(http),
             new ResetUserPasswordCommand(id, idempotencyKey, text(body, "newPassword"), text(body, "confirmPassword")));
         // A reset answer is about a credential change: it is never cached, a replay's included.
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(PasswordResetResponse.of(result));
+    }
+
+    private static String targetForLog(String id) {
+        try {
+            String canonical = UUID.fromString(id).toString();
+            return canonical.equalsIgnoreCase(id) ? canonical : null;
+        } catch (IllegalArgumentException invalid) {
+            return null;
+        }
     }
 
     // Reading JSON through an MVC argument converter would answer 400/415 before the authorization policy runs.

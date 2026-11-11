@@ -50,9 +50,9 @@ class LoginEqualWorkTest {
     @BeforeEach
     void setUp() {
         hasher = new SpyingHasher();
-        login = new LoginUseCase(
-            users(user("ana@synkro.test", true), user("off@synkro.test", false)),
-            hasher, new Fakes.RecordingTokenIssuer(), new Fakes.FakeRefreshTokenStore(), HASH, CLOCK, REFRESH_TTL);
+        var repo = users(user("ana@synkro.test", true), user("u-2", "off@synkro.test", false));
+        login = new LoginUseCase(repo, hasher, new Fakes.RecordingTokenIssuer(),
+            Fakes.issuance(repo, new Fakes.FakeRefreshTokenStore()), HASH, CLOCK, REFRESH_TTL);
         hasher.verified.clear();
     }
 

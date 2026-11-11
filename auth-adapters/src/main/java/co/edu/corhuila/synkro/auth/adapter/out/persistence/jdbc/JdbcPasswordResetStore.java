@@ -24,9 +24,20 @@ import java.util.UUID;
  */
 public class JdbcPasswordResetStore implements PasswordResetStore {
 
+    // The receipt is joined only while it is valid, and "valid" is decided here by the database clock: an expired receipt
+    // that the cleanup has not deleted yet is as absent as a deleted one. The audit row (the reservation of the key)
+    // does not depend on it: the record is found either way.
     private static final String FIND =
-        "SELECT target_user_id::text, occurred_at FROM auth_schema.password_reset_audit "
-            + "WHERE actor_user_id = ? AND idempotency_key = ?";
+        "SELECT a.target_user_id::text, a.occurred_at, r.request_password_hash "
+            + "FROM auth_schema.password_reset_audit a "
+            + "LEFT JOIN auth_schema.password_reset_receipt r ON r.audit_id = a.audit_id AND r.expires_at > clock_timestamp() "
+            + "WHERE a.actor_user_id = ? AND a.idempotency_key = ?";
+
+    // The same bcrypt string that was just written to system_user, kept for 24 hours by the database clock so a manual
+    // retry of this request can be recognized without a second bcrypt and without the password or the body.
+    private static final String INSERT_RECEIPT =
+        "INSERT INTO auth_schema.password_reset_receipt (audit_id, request_password_hash, expires_at) "
+            + "VALUES (?, ?, clock_timestamp() + interval '24 hours')";
 
     // The key is claimed first. A concurrent request of the same actor with the same key waits on the unique index
     // until this transaction ends, then finds the key taken and reads its record, so one of the two executes and the
@@ -48,10 +59,6 @@ public class JdbcPasswordResetStore implements PasswordResetStore {
     private static final String REVOKE_REFRESH_TOKENS =
         "UPDATE auth_schema.refresh_token SET active = false WHERE user_id = ? AND active = true";
 
-    // The lock a rotation and a revocation of the same owner take (see JdbcRefreshTokenStore): held until the end of
-    // this transaction, so a rotation in flight cannot store a replacement after the revocation.
-    private static final String LOCK_OWNER = "SELECT count(*) FROM (SELECT pg_advisory_xact_lock(?, hashtext(?))) locked";
-
     private static final String TARGET_FOREIGN_KEY = "fk_password_reset_audit_target";
 
     private final JdbcTemplate jdbc;
@@ -64,8 +71,9 @@ public class JdbcPasswordResetStore implements PasswordResetStore {
 
     @Override
     public Optional<Recorded> findByActorAndKey(String actorUserId, String idempotencyKey) {
-        return jdbc.query(FIND, (rs, row) -> new Recorded(rs.getString(1),
-            rs.getObject(2, OffsetDateTime.class).toInstant()), UUID.fromString(actorUserId), idempotencyKey).stream().findFirst();
+        return jdbc.query(FIND, (rs, row) -> new Recorded(rs.getString(1), rs.getObject(2, OffsetDateTime.class).toInstant(),
+            Optional.ofNullable(rs.getString(3)).map(RequestReceipt::new)), UUID.fromString(actorUserId), idempotencyKey)
+            .stream().findFirst();
     }
 
     @Override
@@ -78,15 +86,17 @@ public class JdbcPasswordResetStore implements PasswordResetStore {
                         new IllegalStateException("The idempotency key conflicted but its record cannot be read"));
                     return new Outcome.AlreadyRecorded(original);
                 }
-                // The canonical lower-case text is what a rotation locks by (user_id::text), whatever case came in.
-                jdbc.queryForObject(LOCK_OWNER, Long.class, JdbcRefreshTokenStore.LOCK_NAMESPACE,
-                    UUID.fromString(targetUserId).toString());
+                // The lock a rotation, a revocation and a login issuance of the same owner take (see OwnerLock): held until
+                // the end of this transaction, so none of them can store a credential after the revocation below.
+                OwnerLock.acquire(jdbc, targetUserId);
                 if (jdbc.update(UPDATE_PASSWORD, newPasswordHash, UUID.fromString(targetUserId)) == 0) {
                     // Nothing to keep: the claim goes with the rollback, so the key is still free for a valid request.
                     status.setRollbackOnly();
                     return new Outcome.TargetNotEligible();
                 }
                 jdbc.update(REVOKE_REFRESH_TOKENS, UUID.fromString(targetUserId));
+                // Last, so that a failure here rolls back the password, the revocation, the audit and the key together.
+                jdbc.update(INSERT_RECEIPT, UUID.fromString(attribution.auditId()), newPasswordHash);
                 return new Outcome.Reset(attribution.occurredAt());
             });
         } catch (DataIntegrityViolationException e) {

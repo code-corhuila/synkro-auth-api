@@ -149,15 +149,113 @@ class ResetUserPasswordIdempotencyTest {
         assertThat(store.revokedOwners).hasSize(1);
     }
 
-    @Test
-    void whenTheTargetsPasswordChangedAgainAfterTheKeyWasUsed_theOlderRequestIsNoLongerEquivalent() {
-        reset.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, KEY, NEW_PASSWORD));
-        reset.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, "reset-key-0002", "a-later-passphrase"));
+    // ── the key is bound to the ORIGINAL request, not to whatever password the user has now (ADR-021 Decision 5) ──
 
-        assertThatThrownBy(() -> reset.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, KEY, NEW_PASSWORD)))
-            .isInstanceOfSatisfying(BusinessRuleViolationException.class, e -> assertThat(e.field()).isEqualTo("Idempotency-Key"));
+    private static final String SECOND_KEY = "reset-key-0002";
+    private static final String LATER_PASSWORD = "a-later-passphrase";
+
+    @Test
+    void k1SetsA_k2SetsB_k1PlusAAnswersTheOriginalResult_withoutRestoringAOrRevokingNewSessions() {
+        ResetUserPasswordResult first = reset.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, KEY, NEW_PASSWORD));
+        reset.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, SECOND_KEY, LATER_PASSWORD));
+        String hashAfterK2 = store.findById(SALES_ID).orElseThrow().getPasswordHash();
+        int revocationsAfterK2 = store.revokedOwners.size();
+
+        ResetUserPasswordResult replay = reset.execute(ADMIN_CALLER, "corr-0003", command(SALES_ID, KEY, NEW_PASSWORD));
+
+        assertThat(replay.replayed()).isTrue();
+        assertThat(replay.passwordResetAt()).isEqualTo(first.passwordResetAt());
+        assertThat(store.findById(SALES_ID).orElseThrow().getPasswordHash()).as("A is not restored over B").isEqualTo(hashAfterK2);
+        assertThat(PASSWORD_HASHER.matches(LATER_PASSWORD, hashAfterK2)).isTrue();
+        assertThat(store.revokedOwners).as("no session is revoked again").hasSize(revocationsAfterK2);
+        assertThat(store.audits).hasSize(2);
+        assertThat(store.resetCalls).as("the replay never reached the atomic unit").isEqualTo(2);
+    }
+
+    @Test
+    void k1SetsA_k2SetsB_k1PlusBIsRefused_eventhoughBIsTheCurrentPassword() {
+        reset.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, KEY, NEW_PASSWORD));
+        reset.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, SECOND_KEY, LATER_PASSWORD));
+
+        assertThatThrownBy(() -> reset.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, KEY, LATER_PASSWORD)))
+            .isInstanceOfSatisfying(BusinessRuleViolationException.class, e -> {
+                assertThat(e.field()).isEqualTo("Idempotency-Key");
+                assertThat(e.getMessage()).doesNotContain(NEW_PASSWORD, LATER_PASSWORD, SALES_ID);
+            });
 
         assertThat(store.audits).hasSize(2);
+        assertThat(store.resetCalls).isEqualTo(2);
+    }
+
+    @Test
+    void aReplayComparesWithTheReceiptAndNeverReadsTheTargetsCurrentPassword() {
+        reset.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, KEY, NEW_PASSWORD));
+        java.util.List<String> lookedUp = new java.util.ArrayList<>();
+        co.edu.corhuila.synkro.auth.application.port.out.UserRepository watching =
+            new co.edu.corhuila.synkro.auth.application.port.out.UserRepository() {
+                @Override
+                public Optional<co.edu.corhuila.synkro.auth.domain.model.SystemUser> findByEmail(String email) {
+                    return store.findByEmail(email);
+                }
+
+                @Override
+                public Optional<co.edu.corhuila.synkro.auth.domain.model.SystemUser> findById(String userId) {
+                    lookedUp.add(userId);
+                    return store.findById(userId);
+                }
+
+                @Override
+                public SearchResult search(SearchCriteria criteria) {
+                    return store.search(criteria);
+                }
+            };
+        ResetUserPasswordUseCase replaying = new ResetUserPasswordUseCase(watching, store, PASSWORD_HASHER, () -> "audit-9",
+            CLOCK, Fakes.IGNORED_RESET_ATTEMPTS);
+
+        replaying.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, KEY, NEW_PASSWORD));
+
+        assertThat(lookedUp).as("only the caller account is read, never the target whose password was replaced")
+            .containsExactly(ADMIN_CALLER.subject());
+    }
+
+    @Test
+    void aReplayAfterTheReceiptExpired_isRefusedOnTheKey_andNeverExecutesAgain() {
+        reset.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, KEY, NEW_PASSWORD));
+        store.expireReceipt(ADMIN_CALLER.subject(), KEY);
+        int hashesBefore = hashCalls.get();
+
+        assertThatThrownBy(() -> reset.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, KEY, NEW_PASSWORD)))
+            .isInstanceOfSatisfying(BusinessRuleViolationException.class, e -> {
+                assertThat(e.field()).isEqualTo("Idempotency-Key");
+                assertThat(e.getMessage()).doesNotContain(NEW_PASSWORD, SALES_ID);
+            });
+
+        assertThat(store.resetCalls).as("no second execution").isEqualTo(1);
+        assertThat(store.audits).hasSize(1);
+        assertThat(store.revokedOwners).hasSize(1);
+        assertThat(hashCalls.get()).as("not even a new hash is computed").isEqualTo(hashesBefore);
+    }
+
+    @Test
+    void anExpiredReceiptKeepsTheKeyConsumed_soTheSameKeyForADifferentRequestIsRefusedToo() {
+        reset.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, KEY, NEW_PASSWORD));
+        store.expireReceipt(ADMIN_CALLER.subject(), KEY);
+
+        assertThatThrownBy(() -> reset.execute(ADMIN_CALLER, CORRELATION_ID, command(INVENTORY_ID, KEY, "another-passphrase")))
+            .isInstanceOfSatisfying(BusinessRuleViolationException.class, e -> assertThat(e.field()).isEqualTo("Idempotency-Key"));
+
+        assertThat(store.resetCalls).isEqualTo(1);
+        assertThat(store.audits).hasSize(1);
+    }
+
+    @Test
+    void aTargetThatNoLongerQualifiesDoesNotChangeAReplayWithinTheWindow() {
+        reset.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, KEY, NEW_PASSWORD));
+        reset.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, SECOND_KEY, LATER_PASSWORD));
+
+        // an old success is answered from its record even though the current password is a different one
+        assertThat(reset.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, KEY, NEW_PASSWORD)).replayed()).isTrue();
+        assertThat(reset.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, SECOND_KEY, LATER_PASSWORD)).replayed()).isTrue();
     }
 
     @Test
@@ -202,9 +300,11 @@ class ResetUserPasswordIdempotencyTest {
 
     @Test
     void whenAnotherRequestWinsTheRaceWithTheSameRequest_theLoserAnswersTheWinnersResult_withoutChangingAnything() {
+        // the current password is deliberately NOT the winner's: only the receipt decides
         store.replace(new co.edu.corhuila.synkro.auth.domain.model.SystemUser(SALES_ID, "Sales", "sales@synkro.test",
-            PASSWORD_HASHER.hash(NEW_PASSWORD), "SALESPERSON", NOW, true));
-        ResetUserPasswordUseCase loser = loserOf(new Recorded(SALES_ID, NOW.minusSeconds(2)));
+            PASSWORD_HASHER.hash("an-unrelated-passphrase"), "SALESPERSON", NOW, true));
+        ResetUserPasswordUseCase loser = loserOf(new Recorded(SALES_ID, NOW.minusSeconds(2),
+            Optional.of(new PasswordResetStore.RequestReceipt(PASSWORD_HASHER.hash(NEW_PASSWORD)))));
 
         ResetUserPasswordResult result = loser.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, KEY, NEW_PASSWORD));
 
@@ -216,12 +316,25 @@ class ResetUserPasswordIdempotencyTest {
 
     @Test
     void whenAnotherRequestWinsTheRaceWithADifferentRequest_theLoserIsRefusedOnTheKey() {
+        // the current password IS the loser's: it must not make the loser equivalent to the winner
         store.replace(new co.edu.corhuila.synkro.auth.domain.model.SystemUser(SALES_ID, "Sales", "sales@synkro.test",
-            PASSWORD_HASHER.hash("the-winners-passphrase"), "SALESPERSON", NOW, true));
-        ResetUserPasswordUseCase loser = loserOf(new Recorded(SALES_ID, NOW));
+            PASSWORD_HASHER.hash(NEW_PASSWORD), "SALESPERSON", NOW, true));
+        ResetUserPasswordUseCase loser = loserOf(new Recorded(SALES_ID, NOW,
+            Optional.of(new PasswordResetStore.RequestReceipt(PASSWORD_HASHER.hash("the-winners-passphrase")))));
 
         assertThatThrownBy(() -> loser.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, KEY, NEW_PASSWORD)))
             .isInstanceOfSatisfying(BusinessRuleViolationException.class, e -> assertThat(e.field()).isEqualTo("Idempotency-Key"));
+    }
+
+    @Test
+    void whenTheWinnersReceiptExpiredOrWasCleanedBeforeTheLoserReadsIt_theLoserIsRefusedAndNothingExecutesAgain() {
+        ResetUserPasswordUseCase loser = loserOf(new Recorded(SALES_ID, NOW, Optional.empty()));
+
+        assertThatThrownBy(() -> loser.execute(ADMIN_CALLER, CORRELATION_ID, command(SALES_ID, KEY, NEW_PASSWORD)))
+            .isInstanceOfSatisfying(BusinessRuleViolationException.class, e -> assertThat(e.field()).isEqualTo("Idempotency-Key"));
+
+        assertThat(store.audits).isEmpty();
+        assertThat(store.revokedOwners).isEmpty();
     }
 
     @Test

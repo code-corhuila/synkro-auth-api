@@ -62,10 +62,11 @@ jobs:
       # Pinned to a commit so a push to synkro-auth-db cannot turn this repository's CI red
       # by surprise. Bump it, in a PR, when the service needs a newer schema.
       # c338bf95 is the merge of the user_creation_audit migrations (V014-V017), which registration writes to.
-      # 5d831a67 is the head of synkro-auth-db's feat/admin-password-reset (PR #27, not merged yet): it adds
-      # password_reset_audit (V018-V021), which the ADMIN password reset writes to. Once that PR is merged into develop,
-      # move this pin to the merge commit; it must not stay on a feature-branch commit.
-      AUTH_DB_REF: 5d831a678399cc06e0d649ac5839e3ad3f8a623d
+      # 8b9b2c4d is the head of synkro-auth-db's feat/admin-password-reset (PR #27, not merged yet): it adds
+      # password_reset_audit (V018-V021), which the ADMIN password reset writes to, and the private replay receipt
+      # password_reset_receipt with its grants and the cleanup function (V022-V026, ADR-021). Once that PR is merged into
+      # develop, move this pin to the merge commit; it must not stay on a feature-branch commit.
+      AUTH_DB_REF: 8b9b2c4df44223be449719e2f2391be88b08a141
       # The tag synkro-auth-db's own CI and deploy/compose.yml run.
       FLYWAY_IMAGE: flyway/flyway:11.20.3-alpine
       # The database every step below uses. Its exclusive name is also the identity that the tests which empty
@@ -146,7 +147,7 @@ jobs:
         # instead of as a wall of test errors.
         run: |
           set -euo pipefail
-          for table in system_user idempotency_key user_creation_audit password_reset_audit; do
+          for table in system_user idempotency_key user_creation_audit password_reset_audit password_reset_receipt; do
             found=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d "$DISPOSABLE_DB" -tAc \
               "SELECT to_regclass('auth_schema.$table') IS NOT NULL;")
             if [ "$found" != "t" ]; then
@@ -172,6 +173,14 @@ jobs:
             "SELECT has_table_privilege('auth_app', 'auth_schema.password_reset_audit', 'INSERT')::text || has_table_privilege('auth_app', 'auth_schema.password_reset_audit', 'UPDATE')::text;")
           if [ "$reset_grants" != "truefalse" ]; then
             echo "::error::auth_app must be able to INSERT but not UPDATE auth_schema.password_reset_audit (got: $reset_grants): AUTH_DB_REF ($AUTH_DB_REF) predates V018-V021"
+            exit 1
+          fi
+          # The private replay receipt (V022-V026): the service reads and inserts it and can neither change nor delete it,
+          # and the cleanup function belongs to an operator, not to the runtime role.
+          receipt_grants=$(PGPASSWORD=ci_admin_pw psql -h localhost -U postgres -d "$DISPOSABLE_DB" -tAc \
+            "SELECT has_table_privilege('auth_app', 'auth_schema.password_reset_receipt', 'SELECT')::text || has_table_privilege('auth_app', 'auth_schema.password_reset_receipt', 'INSERT')::text || has_table_privilege('auth_app', 'auth_schema.password_reset_receipt', 'UPDATE')::text || has_table_privilege('auth_app', 'auth_schema.password_reset_receipt', 'DELETE')::text || has_function_privilege('auth_app', 'auth_schema.purge_expired_password_reset_receipts(integer)', 'EXECUTE')::text;")
+          if [ "$receipt_grants" != "truetruefalsefalsefalse" ]; then
+            echo "::error::auth_app must SELECT and INSERT, but not UPDATE or DELETE, auth_schema.password_reset_receipt and must not run its cleanup (got: $receipt_grants): AUTH_DB_REF ($AUTH_DB_REF) predates V022-V026"
             exit 1
           fi
 

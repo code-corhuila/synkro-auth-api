@@ -448,6 +448,69 @@ class ResetPasswordHttpIntegrationTest {
         assertThat(status(login(first.email(), NEW_PASSWORD))).isEqualTo(HttpStatus.OK);
     }
 
+    // ── the receipt (ADR-021 Decision 2) ─────────────────────────────
+
+    // Moves the receipt's own clock, which only the instance administrator may do: auth_app can neither update nor delete it.
+    private void expireReceipt(String actorId, String key) throws Exception {
+        try (java.sql.Connection c = java.sql.DriverManager.getConnection(System.getenv("TEST_DATABASE_URL"),
+                System.getenv().getOrDefault("TEST_ADMIN_DATABASE_USER", "postgres"), System.getenv("TEST_ADMIN_DATABASE_PASSWORD"));
+             java.sql.PreparedStatement s = c.prepareStatement(
+                 "UPDATE auth_schema.password_reset_receipt SET expires_at = clock_timestamp() - interval '1 second' WHERE audit_id = "
+                     + "(SELECT audit_id FROM auth_schema.password_reset_audit WHERE actor_user_id = ?::uuid AND idempotency_key = ?)")) {
+            s.setString(1, actorId);
+            s.setString(2, key);
+            assertThat(s.executeUpdate()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    @Tag("AUTH-RESET-13")
+    void k1SetsA_k2SetsB_k1PlusAAnswersTheOriginalResult_withoutRestoringAOrRevokingTheNewSessions() throws Exception {
+        Account admin = newAccount("ADMIN", true);
+        Account target = newAccount("SALESPERSON", true);
+        String k1 = newKey();
+        String k2 = newKey();
+        String passwordA = "passphrase-a-" + UUID.randomUUID();
+        String passwordB = "passphrase-b-" + UUID.randomUUID();
+        JsonNode original = body(reset(admin, target.userId(), k1, passwordA));
+        assertThat(status(reset(admin, target.userId(), k2, passwordB))).isEqualTo(HttpStatus.OK);
+        JsonNode sessionAfterB = body(login(target.email(), passwordB));
+
+        ResponseEntity<String> replay = reset(admin, target.userId(), k1, passwordA);
+
+        assertThat(status(replay)).as("K1 + A is the request K1 did, even though B is the password now").isEqualTo(HttpStatus.OK);
+        assertThat(body(replay)).isEqualTo(original);
+        assertThat(status(login(target.email(), passwordA))).as("A was not restored").isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(status(login(target.email(), passwordB))).isEqualTo(HttpStatus.OK);
+        assertThat(status(refresh(sessionAfterB.get("refreshToken").asText()))).as("the replay revoked nothing").isEqualTo(HttpStatus.OK);
+        assertThat(resetAudits(target.userId())).isEqualTo(2);
+        ResponseEntity<String> k1WithB = reset(admin, target.userId(), k1, passwordB);
+        assertThat(status(k1WithB)).as("K1 + B is not what K1 did").isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(k1WithB.getBody()).doesNotContain(passwordA).doesNotContain(passwordB);
+    }
+
+    @Test
+    @Tag("AUTH-RESET-13")
+    void anExpiredReceipt_is422OnTheKey_changesNothing_andNeverFreesTheKey() throws Exception {
+        Account admin = newAccount("ADMIN", true);
+        Account target = newAccount("SALESPERSON", true);
+        String key = newKey();
+        assertThat(status(reset(admin, target.userId(), key, NEW_PASSWORD))).isEqualTo(HttpStatus.OK);
+        String hashAfterTheReset = jdbc.queryForObject("SELECT password_hash FROM auth_schema.system_user WHERE user_id = ?::uuid", String.class, target.userId());
+        expireReceipt(admin.userId(), key);
+
+        ResponseEntity<String> late = reset(admin, target.userId(), key, NEW_PASSWORD);
+
+        assertThat(status(late)).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(body(late).get("details").get(0).get("field").asText()).isEqualTo("Idempotency-Key");
+        assertThat(late.getBody()).doesNotContain(NEW_PASSWORD).doesNotContain(hashAfterTheReset);
+        assertThat(jdbc.queryForObject("SELECT password_hash FROM auth_schema.system_user WHERE user_id = ?::uuid", String.class, target.userId()))
+            .as("not executed again").isEqualTo(hashAfterTheReset);
+        assertThat(resetAudits(target.userId())).isEqualTo(1);
+        assertThat(status(reset(admin, target.userId(), key, "another-passphrase-entirely"))).as("the key is still consumed").isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(status(reset(admin, target.userId(), newKey(), "another-passphrase-entirely"))).as("a new key is a new operation").isEqualTo(HttpStatus.OK);
+    }
+
     @Test
     @Tag("AUTH-RESET-14")
     void twoSimultaneousRequestsWithTheSameKey_changeThePasswordOnce_andBothAnswer200() throws Exception {

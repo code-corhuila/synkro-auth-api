@@ -109,13 +109,16 @@ public class ResetUserPasswordUseCase {
         }
     }
 
-    // A key is only an answer to the request that created it. It was made by this actor, for one target, and the
-    // password it set is the one that target's hash verifies now: anything else must not be shown that result, and
-    // nothing is stored of the first request to compare against.
+    // A key is only an answer to the request that created it: made by this actor, for one target, with the password that
+    // request set. That password is compared with the private receipt of that very reset (the bcrypt it stored, which
+    // lives 24 hours), never with the target's current hash: a later reset by another key changes the current hash but
+    // not what this key did. Without a valid receipt (expired, cleaned up or never written) the request cannot be
+    // recognised and is refused; the key stays consumed and nothing is executed again. Replay is read-only: the target
+    // is not even read.
     private ResetUserPasswordResult replay(ResetUserPasswordCommand command, String targetId, Recorded original) {
         boolean sameRequest = original.targetUserId().equalsIgnoreCase(targetId)
-            && users.findById(original.targetUserId())
-                .map(target -> hasher.matches(command.newPassword(), target.getPasswordHash()))
+            && original.receipt()
+                .map(receipt -> hasher.matches(command.newPassword(), receipt.passwordHash()))
                 .orElse(false);
         if (!sameRequest) {
             throw new BusinessRuleViolationException(ResetUserPasswordValidator.IDEMPOTENCY_KEY,

@@ -24,8 +24,10 @@ class FakePasswordResetStore implements PasswordResetStore, UserRepository {
     static final String MISSING_ID = "99999999-9999-9999-9999-999999999999";
 
     final Map<String, SystemUser> users = new LinkedHashMap<>();
-    /** The records of committed resets, by "actor|key". */
+    /** The permanent reservations of committed resets, by "actor|key": they never expire and are never removed. */
     final Map<String, Recorded> recorded = new LinkedHashMap<>();
+    /** The private receipts, by "actor|key": the bcrypt string that was assigned. Expiry or cleanup removes one. */
+    final Map<String, String> receipts = new LinkedHashMap<>();
     final List<ResetAttribution> audits = new ArrayList<>();
     final List<String> revokedOwners = new ArrayList<>();
     int lookups;
@@ -52,19 +54,33 @@ class FakePasswordResetStore implements PasswordResetStore, UserRepository {
         return actorUserId + "|" + key;
     }
 
+    /** The receipt window ended, or the cleanup removed the row: the key stays recorded and consumed. */
+    final void expireReceipt(String actorUserId, String idempotencyKey) {
+        receipts.remove(slot(actorUserId, idempotencyKey));
+    }
+
+    private Optional<Recorded> view(String slot) {
+        Recorded base = recorded.get(slot);
+        if (base == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new Recorded(base.targetUserId(), base.occurredAt(),
+            Optional.ofNullable(receipts.get(slot)).map(RequestReceipt::new)));
+    }
+
     @Override
     public Optional<Recorded> findByActorAndKey(String actorUserId, String idempotencyKey) {
         lookups++;
-        return Optional.ofNullable(recorded.get(slot(actorUserId, idempotencyKey)));
+        return view(slot(actorUserId, idempotencyKey));
     }
 
     @Override
     public Outcome resetPasswordWithAudit(String idempotencyKey, String targetUserId, String newPasswordHash,
                                           ResetAttribution attribution) {
         resetCalls++;
-        Recorded existing = recorded.get(slot(attribution.actorUserId(), idempotencyKey));
-        if (existing != null) {
-            return new Outcome.AlreadyRecorded(existing);
+        Optional<Recorded> existing = view(slot(attribution.actorUserId(), idempotencyKey));
+        if (existing.isPresent()) {
+            return new Outcome.AlreadyRecorded(existing.get());
         }
         SystemUser target = users.get(targetUserId);
         if (target == null || !target.isActive() || "ADMIN".equals(target.getRole())) {
@@ -74,7 +90,10 @@ class FakePasswordResetStore implements PasswordResetStore, UserRepository {
             target.getRole(), target.getRegistrationDate(), target.isActive()));
         revokedOwners.add(targetUserId);
         audits.add(attribution);
-        recorded.put(slot(attribution.actorUserId(), idempotencyKey), new Recorded(targetUserId, attribution.occurredAt()));
+        String slot = slot(attribution.actorUserId(), idempotencyKey);
+        recorded.put(slot, new Recorded(targetUserId, attribution.occurredAt(), Optional.empty()));
+        // The same string that was assigned to the user, never a second hash.
+        receipts.put(slot, newPasswordHash);
         return new Outcome.Reset(attribution.occurredAt());
     }
 

@@ -5,6 +5,7 @@ import co.edu.corhuila.synkro.auth.adapter.out.crypto.Rs256ServiceTokenSigner;
 import co.edu.corhuila.synkro.auth.adapter.out.crypto.Rs256TokenIssuer;
 import co.edu.corhuila.synkro.auth.adapter.out.crypto.Rs256TokenVerifier;
 import co.edu.corhuila.synkro.auth.adapter.out.crypto.Sha256HashFunction;
+import co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc.JdbcCredentialIssuanceStore;
 import co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc.JdbcPasswordResetStore;
 import co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc.JdbcRefreshTokenStore;
 import co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc.JdbcServiceTokenRepository;
@@ -16,6 +17,7 @@ import co.edu.corhuila.synkro.auth.application.port.out.HashFunction;
 import co.edu.corhuila.synkro.auth.application.port.out.IdGenerator;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordResetAttemptLog;
+import co.edu.corhuila.synkro.auth.application.port.out.CredentialIssuanceStore;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordResetStore;
 import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore;
 import co.edu.corhuila.synkro.auth.application.port.out.RegistrationAttemptLog;
@@ -91,6 +93,12 @@ public class AuthBeansConfig {
     @Bean
     public RefreshTokenStore refreshTokenStore(JdbcTemplate jdbc, PlatformTransactionManager transactionManager) {
         return new JdbcRefreshTokenStore(jdbc, transactionManager);
+    }
+
+    // Login persists its refresh credential here, under the same per-user lock as reset and rotation (ADR-021).
+    @Bean
+    public CredentialIssuanceStore credentialIssuanceStore(JdbcTemplate jdbc, TransactionOperations transactions) {
+        return new JdbcCredentialIssuanceStore(jdbc, transactions);
     }
 
     @Bean
@@ -174,9 +182,9 @@ public class AuthBeansConfig {
 
     @Bean
     public LoginUseCase loginUseCase(UserRepository users, PasswordHasher hasher, TokenIssuer issuer,
-                                     RefreshTokenStore store, HashFunction hash, Clock clock,
+                                     CredentialIssuanceStore issuance, HashFunction hash, Clock clock,
                                      @Value("${synkro.auth.refresh-token-ttl:P7D}") Duration refreshTokenTtl) {
-        return new LoginUseCase(users, hasher, issuer, store, hash, clock, refreshTokenTtl);
+        return new LoginUseCase(users, hasher, issuer, issuance, hash, clock, refreshTokenTtl);
     }
 
     @Bean

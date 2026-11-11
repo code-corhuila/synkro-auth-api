@@ -1,5 +1,6 @@
 package co.edu.corhuila.synkro.auth.application.usecase;
 
+import co.edu.corhuila.synkro.auth.application.port.out.CredentialIssuanceStore;
 import co.edu.corhuila.synkro.auth.application.port.out.HashFunction;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordResetAttemptLog;
@@ -62,7 +63,12 @@ final class Fakes {
     static final HashFunction HASH = value -> "sha:" + value;
 
     static SystemUser user(String email, boolean active) {
-        return new SystemUser("u-1", "Ana", email, "hashed:" + PASSWORD, "ADMIN", NOW, active);
+        return user("u-1", email, active);
+    }
+
+    /** Two users of one fixture need distinct ids: the issuance fence looks the user up by id. */
+    static SystemUser user(String userId, String email, boolean active) {
+        return new SystemUser(userId, "Ana", email, "hashed:" + PASSWORD, "ADMIN", NOW, active);
     }
 
     static UserRepository users(SystemUser... users) {
@@ -99,6 +105,44 @@ final class Fakes {
                 return new SearchResult(matches.subList(from, to), matches.size());
             }
         };
+    }
+
+    /**
+     * The credential-issuance port in memory, with the contract of the real one: the refresh credential is saved only
+     * if the user is still there, active and still stores exactly the hash the login verified. {@code open} is true
+     * only while the port runs, so a test can tell whether a slow verification happened inside the fence.
+     */
+    static class FakeCredentialIssuanceStore implements CredentialIssuanceStore {
+        private final UserRepository users;
+        private final FakeRefreshTokenStore refreshTokens;
+        boolean open;
+        int calls;
+        String lastVerifiedHash;
+
+        FakeCredentialIssuanceStore(UserRepository users, FakeRefreshTokenStore refreshTokens) {
+            this.users = users;
+            this.refreshTokens = refreshTokens;
+        }
+
+        @Override
+        public Optional<SystemUser> persistRefresh(String userId, String verifiedPasswordHash, String refreshTokenHash, Instant expiresAt) {
+            calls++;
+            lastVerifiedHash = verifiedPasswordHash;
+            open = true;
+            try {
+                Optional<SystemUser> current = users.findById(userId)
+                    .filter(SystemUser::isActive)
+                    .filter(u -> u.getPasswordHash().equals(verifiedPasswordHash));
+                current.ifPresent(u -> refreshTokens.save(refreshTokenHash, userId, expiresAt));
+                return current;
+            } finally {
+                open = false;
+            }
+        }
+    }
+
+    static FakeCredentialIssuanceStore issuance(UserRepository users, FakeRefreshTokenStore refreshTokens) {
+        return new FakeCredentialIssuanceStore(users, refreshTokens);
     }
 
     static class RecordingTokenIssuer implements TokenIssuer {

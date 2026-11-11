@@ -395,9 +395,9 @@ curl -s http://localhost:8080/api/v1/auth/users/<userId> -H "Authorization: Bear
 
 ## Users: password reset by an ADMIN
 
-HU-AUTH-19. Status of the decision: [ADR-021](https://github.com/code-corhuila/synkro-docs/blob/docs/admin-password-reset-decision/05-architecture/decisions/records/ADR-021-admin-password-reset.md)
-is **`Proposed`**, not accepted (the link is to the proposal branch until it is published); this section describes what
-the code does, not an accepted contract.
+HU-AUTH-19. [ADR-021](https://github.com/code-corhuila/synkro-docs/blob/docs/admin-password-reset-decision/05-architecture/decisions/records/ADR-021-admin-password-reset.md)
+is **`Accepted`** (revision `a7004cf`, in synkro-docs PR #310; the link is to that branch until the PR is merged). The
+acceptance is of the decision: this code and its review are separate facts.
 
 | Endpoint | Who | Success |
 |---|---|---|
@@ -418,22 +418,41 @@ unit below. So a refused caller learns nothing about a key, and an administrator
 another administrator**: the last usable administrator is protected by construction. That is also why this is not an
 administrator-recovery path (TD-009 stays open).
 
-**The unit.** `JdbcPasswordResetStore` runs four writes in one transaction on one connection, started by the adapter
+**The unit.** `JdbcPasswordResetStore` runs five writes in one transaction on one connection, started by the adapter
 and invisible to the use case: it claims the key by inserting the `password_reset_audit` row, takes the per-owner
-advisory lock that a refresh rotation also takes, replaces the target's hash (`WHERE active AND role <> 'ADMIN'`,
-checked again here) and sets `active = false` on every active refresh token of the target. If any write fails, all are
-undone: no key, no audit row, no new hash, no revocation. The hash is computed before the transaction, so no lock is held
-during bcrypt. The audit row holds the actor, the target, the key, the UTC time and the correlation id; it holds no
-password, hash, token or body, and it is the only record of the key.
+advisory lock that a refresh rotation and a login issuance also take (`OwnerLock`), replaces the target's hash
+(`WHERE active AND role <> 'ADMIN'`, checked again here), sets `active = false` on every active refresh token of the target
+and stores the **receipt** (below). If any write fails, all are undone: no key, no audit row, no new hash, no
+revocation, no receipt. The hash is computed before the transaction, so no lock is held during bcrypt. The audit row
+holds the actor, the target, the key, the UTC time and the correlation id; it holds no password, hash, token or body,
+and it is the permanent record of the key.
+
+**The receipt.** `password_reset_receipt` (synkro-auth-db V022 to V026) is a private record, apart from the audit and
+linked to it by `audit_id`. It holds exactly the bcrypt string that was just assigned to the target (no second bcrypt, no
+password, no body, no fast hash) and `expires_at`, 24 hours after the reset by the **database** clock. `auth_app` can
+`SELECT` and `INSERT` it and nothing else; general readers, reports and exports have no access. It never appears in a
+response, a log, a `toString` or an error (`RequestReceipt` redacts itself). Expiry is **logical**: a receipt past its
+`expires_at` is treated as absent when the key is looked up, whether or not the row has been deleted yet.
 
 **Replay.** The key belongs to the administrator that used it (`UNIQUE (actor_user_id, idempotency_key)`): another
 administrator using the same text has a different key, and nobody can read or repeat another's reset. The same key from
 the same actor with an *equivalent* request answers `200` with the first execution's body and changes nothing: no new
 hash, no revocation (so a session the target opened after the reset survives the replay), no second audit row. Equivalent
-means the same target and a password that the target's **current** bcrypt hash verifies; nothing of the first request
-is stored to compare against, so no new password-derived material exists at rest. The cost is that after the target's
-password changes again, an older key is refused. The same key with another target or password is `422` on
-`Idempotency-Key`. Two simultaneous requests with one key execute once; both answer `200`.
+means the same target and a password that the **receipt** of that reset verifies. The target's current hash is never the
+comparator, so a later reset by another key does not change what this key answers: K1 sets A, K2 sets B, and K1 with A
+still answers K1's result without restoring A or revoking the sessions opened after B; K1 with B is `422`. The replay is
+read-only and does not even read the target. **After the receipt expires** (24 hours), or if the cleanup removed it, the
+same request is `422` on `Idempotency-Key`: the key stays consumed, nothing is executed again, and the answer does not
+say the reset did not happen. A new operation needs a new key, chosen by a person. The same key with another target or
+password is `422` on `Idempotency-Key`. Two simultaneous requests with one key execute once; both answer `200`.
+
+**Cleanup of expired receipts.** The runtime never deletes. An operator with the right to do so runs
+`auth_schema.purge_expired_password_reset_receipts(batch_size)` (1 to 10000, default 1000) **daily**; it deletes only
+expired receipts, oldest first, skipping rows another session holds, and returns a count, never a hash. Audits and consumed
+keys stay. The owner of that run is the operator of the shared PostgreSQL / Infra; it needs no new Worker. Details, and
+what they do not promise, are in the README of synkro-auth-db: logical expiry is immediate, physical deletion happens when
+the procedure runs (not at hour 24), and **a backup taken before it ran still holds the receipt**, so backups are as
+sensitive as the live table.
 
 **An uncertain outcome.** A `500` (persistence failure, or a response lost after the commit) does not say whether the
 change was applied. The answer is to repeat the **same** request with the **same** key: it executes if nothing was
@@ -444,9 +463,19 @@ to log in as the target.
 until it expires, at most about one hour ([ADR-017](https://github.com/code-corhuila/synkro-docs/blob/main/05-architecture/decisions/records/ADR-017-refresh-reuse-and-jwt-revocation-boundaries.md));
 no immediate revocation is claimed. Revoked rows are `active = false` but unexpired, so a stale device that later
 presents an old refresh token triggers the existing reuse detection, which revokes every active refresh token of that
-owner, including one opened after the reset. A login that verified the old password just before the commit and stores
-its refresh token just after it leaves one refresh token obtained with the retired password. There is no forced
-password change at the next login.
+owner, including one opened after the reset. There is no forced password change at the next login.
+
+**Login against a reset.** `LoginUseCase` still verifies the password with bcrypt outside any lock. It then hands the
+verified hash to `CredentialIssuanceStore.persistRefresh` (`JdbcCredentialIssuanceStore`), which in one transaction takes
+the same per-owner lock as the reset and the rotation (same key space, same canonical lower-case user id), reads the user as
+it is now, checks that the user is active and that the stored hash **equals the hash that was verified**, and only then
+saves the refresh token and commits. If a reset committed in between, or the user was deactivated, the login answers the
+generic `401`, saves nothing and returns no token; the claims of the access token come from the identity the unit read.
+No column or secret was added for this. Lock order: a rotation and an issuance take the owner lock first and then only read
+or insert; a reset claims its audit row first and takes the owner lock before it updates anything; nobody takes two owner
+locks, so the three cannot deadlock (`LoginVersusResetIntegrationTest` runs all three together). This closes the window
+in which a login verified with the retired password could still store a refresh token after the reset. It is **not**
+immediate revocation of an access token that was already issued (ADR-017).
 
 | Status | `error` | When |
 |---|---|---|
@@ -469,8 +498,8 @@ curl -s -X POST http://localhost:8080/api/v1/auth/users/<userId>/password-reset 
 # 200 {"userId":"…","passwordResetAt":"…"}
 ```
 
-The new table comes from `synkro-auth-db` (V018 to V021), so this repository's CI pins `AUTH_DB_REF` to a commit that
-has it: the database change is integrated first, then the pin is moved to the merged commit.
+The new tables come from `synkro-auth-db` (V018 to V026), so this repository's CI pins `AUTH_DB_REF` to a commit that
+has them: the database change is integrated first, then the pin is moved to the merged commit.
 
 ## Sessions: logout and refresh-token reuse
 

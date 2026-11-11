@@ -2,6 +2,7 @@ package co.edu.corhuila.synkro.auth.adapter.out.persistence.jdbc;
 
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordResetStore.Outcome;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordResetStore.Recorded;
+import co.edu.corhuila.synkro.auth.application.port.out.PasswordResetStore.RequestReceipt;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordResetStore.ResetAttribution;
 import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore.Consumption;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,8 +57,9 @@ class JdbcPasswordResetStoreIntegrationTest {
         return "it-reset-" + UUID.randomUUID();
     }
 
+    // The receipt table accepts only bcrypt strings, so a hash handed straight to the store must have that shape.
     private static String newHash() {
-        return "new-hash-" + UUID.randomUUID();
+        return PostgresTestDatabase.bcryptShaped();
     }
 
     private String target(String role, boolean active) {
@@ -129,16 +131,18 @@ class JdbcPasswordResetStoreIntegrationTest {
     void anInventoryUserIsResetToo() {
         String targetId = target("INVENTORY", true);
 
-        assertThat(reset(newKey(), targetId, "inventory-new-hash")).isInstanceOf(Outcome.Reset.class);
+        String hash = newHash();
 
-        assertThat(hashOf(targetId)).isEqualTo("inventory-new-hash");
+        assertThat(reset(newKey(), targetId, hash)).isInstanceOf(Outcome.Reset.class);
+
+        assertThat(hashOf(targetId)).isEqualTo(hash);
     }
 
     @Test
     void theAuditRowHoldsNoHashAndNoPassword() {
         String targetId = target("SALESPERSON", true);
         String key = newKey();
-        String hash = "super-secret-hash-" + UUID.randomUUID();
+        String hash = newHash();
 
         reset(key, targetId, hash);
 
@@ -218,10 +222,12 @@ class JdbcPasswordResetStoreIntegrationTest {
         String targetId = target("SALESPERSON", true);
         String key = newKey();
         ResetAttribution attribution = attribution(actorId);
-        store.resetPasswordWithAudit(key, targetId, newHash(), attribution);
+        String hash = newHash();
+        store.resetPasswordWithAudit(key, targetId, hash, attribution);
         String otherAdmin = PostgresTestDatabase.insertUser(jdbc, "ADMIN", true);
 
-        assertThat(store.findByActorAndKey(actorId, key)).contains(new Recorded(targetId, attribution.occurredAt()));
+        assertThat(store.findByActorAndKey(actorId, key)).contains(new Recorded(targetId, attribution.occurredAt(),
+            java.util.Optional.of(new RequestReceipt(hash))));
         assertThat(store.findByActorAndKey(otherAdmin, key)).isEmpty();
         assertThat(store.findByActorAndKey(actorId, newKey())).isEmpty();
     }
@@ -293,7 +299,7 @@ class JdbcPasswordResetStoreIntegrationTest {
         assertThat(hashOf(targetId)).as("no new password").isEqualTo(OLD_HASH);
         assertThat(activeRefreshTokens(targetId)).as("no revocation").isEqualTo(1);
         assertThat(auditRowsFor(actorId, key)).as("no audit row, so no key").isZero();
-        assertThat(reset(key, targetId, "after-the-failure")).as("the key can be used again").isInstanceOf(Outcome.Reset.class);
+        assertThat(reset(key, targetId, newHash())).as("the key can be used again").isInstanceOf(Outcome.Reset.class);
     }
 
     @Test

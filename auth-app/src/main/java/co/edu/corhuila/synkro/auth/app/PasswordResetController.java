@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.io.IOException;
+import java.io.PushbackInputStream;
 import java.util.List;
 
 /**
@@ -66,10 +67,12 @@ public class PasswordResetController {
     // Reading JSON through an MVC argument converter would answer 400/415 before the authorization policy runs.
     private JsonNode readBody(HttpServletRequest http) throws HttpMediaTypeNotSupportedException {
         try {
-            byte[] input = http.getInputStream().readAllBytes();
-            if (input.length == 0) {
+            PushbackInputStream input = new PushbackInputStream(http.getInputStream());
+            int first = input.read();
+            if (first == -1) {
                 throw new HttpMessageNotReadableException("Missing JSON body", new ServletServerHttpRequest(http));
             }
+            input.unread(first);
             MediaType contentType;
             try {
                 contentType = http.getContentType() == null ? MediaType.APPLICATION_OCTET_STREAM

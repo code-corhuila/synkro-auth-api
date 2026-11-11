@@ -22,5 +22,6 @@ the packaged operator CLI. It starts its own JVM, uses a bounded startup wait, p
 removes only its JVM, labelled migration container, created database and private temporary files. Runtime credentials
 never gain cleanup privileges. This executor is disposable acceptance; it does not deploy or clean the persistent store.
 
-Before integrating API #44, DB #27 must be integrated and AUTH_DB_REF re-pinned to its actual develop integration
-commit, followed by the affected checks. A feature-head pin is not the final integration pin. Portal follows API.
+DB #27 is integrated in develop as `2b6252237bd5a4911ec8db13e99008a059d95e42`; AUTH_DB_REF now names that
+integration commit rather than the feature head. Verify this selection and review the updated API head before
+integrating API #44. Portal follows API. This reference update does not deploy the persistent installation.

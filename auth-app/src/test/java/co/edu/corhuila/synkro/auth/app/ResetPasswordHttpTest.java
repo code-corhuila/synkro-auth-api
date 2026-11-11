@@ -182,6 +182,37 @@ class ResetPasswordHttpTest {
         assertThat(store.calls).isEmpty();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {SALES_ID, "not-a-user-id"})
+    void bodyDecodingRejectionsAreLoggedWithoutRequestMaterial(String targetId) {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("synkro.auth.security");
+        var events = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        events.start();
+        logger.addAppender(events);
+        try {
+            assertThat(resetAsAdmin(targetId, "private-log-key", null).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(resetAsAdmin(targetId, "private-log-key", "{\"newPassword\":\"" + NEW_PASSWORD + "\"")
+                .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            var headers = new HttpHeaders();
+            headers.setBearerAuth(tokenFor(ADMIN_ID, "ADMIN"));
+            headers.setContentType(MediaType.TEXT_PLAIN);
+            headers.set("X-Correlation-Id", "corr-reset-http");
+            var unsupported = http.exchange("http://localhost:" + port + "/api/v1/auth/users/" + targetId + "/password-reset",
+                HttpMethod.POST, new HttpEntity<>(NEW_PASSWORD, headers), String.class);
+            assertThat(unsupported.getStatusCode()).isEqualTo(HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+            var messages = events.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).toList();
+            assertThat(messages).hasSize(3).allSatisfy(message -> {
+                assertThat(message).contains("event=PASSWORD_RESET_REJECTED", "correlationId=corr-reset-http",
+                    "caller=" + ADMIN_ID, "reason=INVALID_REQUEST", "target=" + (targetId.equals(SALES_ID) ? SALES_ID : "-"));
+                assertThat(message).doesNotContain(NEW_PASSWORD, "private-log-key", "newPassword", "not-a-user-id");
+            });
+            assertThat(store.calls).isEmpty();
+        } finally {
+            logger.detachAppender(events);
+            events.stop();
+        }
+    }
+
     @Test
     @Tag("AUTH-RESET-04")
     void noToken_is401_andNothingIsHandedToTheStore() {

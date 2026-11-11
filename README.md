@@ -449,10 +449,15 @@ password is `422` on `Idempotency-Key`. Two simultaneous requests with one key e
 **Cleanup of expired receipts.** The runtime never deletes. An operator with the right to do so runs
 `auth_schema.purge_expired_password_reset_receipts(batch_size)` (1 to 10000, default 1000) **daily**; it deletes only
 expired receipts, oldest first, skipping rows another session holds, and returns a count, never a hash. Audits and consumed
-keys stay. The owner of that run is the operator of the shared PostgreSQL / Infra; it needs no new Worker. Details, and
+keys stay. Project owner **AsolanoT** is assigned daily execution, verification and failure response in the persistent
+local installation (confirmed 2026-11-11); this does not install an automated task and needs no new Worker. Details, and
 what they do not promise, are in the README of synkro-auth-db: logical expiry is immediate, physical deletion happens when
 the procedure runs (not at hour 24), and **a backup taken before it ran still holds the receipt**, so backups are as
 sensitive as the live table.
+
+The bounded Auth Portal consumer/provider checks and immutable artifact provenance are documented in
+[tests/pact/README.md](tests/pact/README.md). These checks use a separately created disposable database; they never run
+this operational cleanup against the persistent installation.
 
 **An uncertain outcome.** A `500` (persistence failure, or a response lost after the commit) does not say whether the
 change was applied. The answer is to repeat the **same** request with the **same** key: it executes if nothing was

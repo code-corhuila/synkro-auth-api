@@ -62,11 +62,11 @@ jobs:
       # Pinned to a commit so a push to synkro-auth-db cannot turn this repository's CI red
       # by surprise. Bump it, in a PR, when the service needs a newer schema.
       # c338bf95 is the merge of the user_creation_audit migrations (V014-V017), which registration writes to.
-      # 8b9b2c4d is the head of synkro-auth-db's feat/admin-password-reset (PR #27, not merged yet): it adds
+      # 8c27dda6 is the reviewed head of synkro-auth-db's feat/admin-password-reset (PR #27, not merged yet): it adds
       # password_reset_audit (V018-V021), which the ADMIN password reset writes to, and the private replay receipt
       # password_reset_receipt with its grants and the cleanup function (V022-V026, ADR-021). Once that PR is merged into
       # develop, move this pin to the merge commit; it must not stay on a feature-branch commit.
-      AUTH_DB_REF: 8b9b2c4df44223be449719e2f2391be88b08a141
+      AUTH_DB_REF: 8c27dda6276c43697c28ec96e17716392c1c2892
       AUTH_PORTAL_REF: 4ef4a3a4da20492da6eeb50f4417b88f1332a15b
       # The tag synkro-auth-db's own CI and deploy/compose.yml run.
       FLYWAY_IMAGE: flyway/flyway:11.20.3-alpine

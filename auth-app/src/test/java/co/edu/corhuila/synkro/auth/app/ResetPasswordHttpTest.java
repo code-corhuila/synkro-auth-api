@@ -156,6 +156,33 @@ class ResetPasswordHttpTest {
     }
 
     @Test
+    void anAuthorizedCallerStillReceives415ForAnInvalidMediaType() throws Exception {
+        var request = java.net.http.HttpRequest.newBuilder(java.net.URI.create("http://localhost:" + port
+                + "/api/v1/auth/users/" + SALES_ID + "/password-reset"))
+            .header("Authorization", "Bearer " + tokenFor(ADMIN_ID, "ADMIN"))
+            .header("Content-Type", "not-a-media-type")
+            .header("Idempotency-Key", "reset-invalid-media")
+            .POST(java.net.http.HttpRequest.BodyPublishers.ofString("{}"))
+            .build();
+        var response = java.net.http.HttpClient.newHttpClient().send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(415);
+        assertThat(store.calls).isEmpty();
+    }
+
+    @Test
+    void anAuthorizedCallerWithNoBodyOrContentTypeStillReceives400() throws Exception {
+        var request = java.net.http.HttpRequest.newBuilder(java.net.URI.create("http://localhost:" + port
+                + "/api/v1/auth/users/" + SALES_ID + "/password-reset"))
+            .header("Authorization", "Bearer " + tokenFor(ADMIN_ID, "ADMIN"))
+            .header("Idempotency-Key", "reset-empty-media")
+            .POST(java.net.http.HttpRequest.BodyPublishers.noBody())
+            .build();
+        var response = java.net.http.HttpClient.newHttpClient().send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(store.calls).isEmpty();
+    }
+
+    @Test
     @Tag("AUTH-RESET-04")
     void noToken_is401_andNothingIsHandedToTheStore() {
         ResponseEntity<String> response = reset(null, SALES_ID, "reset-key-0001", passwordBody(NEW_PASSWORD));

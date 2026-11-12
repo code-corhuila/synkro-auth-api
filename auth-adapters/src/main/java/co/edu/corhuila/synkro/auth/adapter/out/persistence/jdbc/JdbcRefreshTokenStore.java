@@ -48,10 +48,10 @@ public class JdbcRefreshTokenStore implements RefreshTokenStore {
     // Who owns the token, whatever its state: read first only to know which owner to serialize with.
     private static final String OWNER_OF = "SELECT user_id::text FROM auth_schema.refresh_token WHERE token = ?";
 
-    // Held until the end of the transaction. A rotation and a revocation of the same owner take it before they touch
-    // any row, so a revocation cannot run between the burning of a token and the storing of its replacement. The
-    // two-integer form is a different key space from the bigint key that ADR-014 reserves for the initial administrator.
-    private static final String LOCK_OWNER = "SELECT count(*) FROM (SELECT pg_advisory_xact_lock(?, hashtext(?))) locked";
+    // The owner lock (see OwnerLock) is held until the end of the transaction. A rotation and a revocation of the same
+    // owner take it before they touch any row, so a revocation cannot run between the burning of a token and the storing
+    // of its replacement; login issuance and password reset take the very same one. The two-integer form is a different
+    // key space from the bigint key that ADR-014 reserves for the initial administrator.
     static final int LOCK_NAMESPACE = 0x52544F4B;
 
     private final JdbcTemplate jdbc;
@@ -106,7 +106,7 @@ public class JdbcRefreshTokenStore implements RefreshTokenStore {
     }
 
     private void lockOwner(String userId) {
-        jdbc.queryForObject(LOCK_OWNER, Long.class, LOCK_NAMESPACE, userId);
+        OwnerLock.acquire(jdbc, userId);
     }
 
     @Override

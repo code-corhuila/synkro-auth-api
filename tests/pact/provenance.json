@@ -1,0 +1,11 @@
+{
+  "contracts": [
+    {
+      "file": "AuthPortal-AuthAPI.json",
+      "repository": "code-corhuila/synkro-auth-portal",
+      "revision": "4ef4a3a4da20492da6eeb50f4417b88f1332a15b",
+      "path": "tests/pact/pacts/AuthPortal-AuthAPI.json",
+      "sha256": "3718cce257ef5022e9cc24247a070c978503de6ca71aebb311e14f727f7d3a6d"
+    }
+  ]
+}

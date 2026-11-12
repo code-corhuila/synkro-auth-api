@@ -29,7 +29,7 @@ class RefreshUseCaseTest {
         issuer = new RecordingTokenIssuer();
         store = new FakeRefreshTokenStore();
         var repo = users(user("ana@synkro.test", true));
-        login = new LoginUseCase(repo, PASSWORD_HASHER, issuer, store, HASH, CLOCK, REFRESH_TTL);
+        login = new LoginUseCase(repo, PASSWORD_HASHER, issuer, Fakes.issuance(repo, store), HASH, CLOCK, REFRESH_TTL);
         refresh = new RefreshUseCase(repo, issuer, store, HASH, CLOCK, REFRESH_TTL);
     }
 

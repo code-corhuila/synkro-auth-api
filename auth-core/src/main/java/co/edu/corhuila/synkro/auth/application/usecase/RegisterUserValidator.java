@@ -51,12 +51,17 @@ final class RegisterUserValidator {
     }
 
     static void checkPassword(List<Problem> problems, String password) {
+        checkPassword(problems, "password", password);
+    }
+
+    /** The one password policy, shared by registration and the administrative reset, which names the field differently. */
+    static void checkPassword(List<Problem> problems, String field, String password) {
         if (password == null || password.isEmpty()) {
-            problems.add(new Problem("password", "The field password is required"));
+            problems.add(new Problem(field, "The field " + field + " is required"));
         } else if (password.length() < 8) {
-            problems.add(new Problem("password", "The field password must have at least 8 characters"));
+            problems.add(new Problem(field, "The field " + field + " must have at least 8 characters"));
         } else if (password.getBytes(StandardCharsets.UTF_8).length > PASSWORD_MAX_BYTES) {
-            problems.add(new Problem("password", "The field password must have at most 72 bytes"));
+            problems.add(new Problem(field, "The field " + field + " must have at most 72 bytes"));
         }
     }
 

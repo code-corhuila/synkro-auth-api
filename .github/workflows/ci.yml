@@ -295,12 +295,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: code-corhuila/synkro-auth-db
-          ref: a4810a0fa30f4f8eb73504e7249a9667c45384e8
+          ref: 54c7fdce2b027d340d990123b9ae17af4f91ec79
           path: synkro-auth-db
       - uses: actions/checkout@v4
         with:
           repository: code-corhuila/synkro-api-gateway
-          ref: 81c8125dda619dadda2163a0f0e2e50b84b10583
+          ref: 5e5c3d5bdd67ae8c20eba2eaf2241d43a67adcde
           path: synkro-api-gateway
       - uses: actions/setup-node@v4
         with:

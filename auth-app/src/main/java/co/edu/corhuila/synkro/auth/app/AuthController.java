@@ -1,6 +1,7 @@
 package co.edu.corhuila.synkro.auth.app;
 
 import co.edu.corhuila.synkro.auth.application.usecase.LoginResult;
+import co.edu.corhuila.synkro.auth.application.usecase.LoginConcurrencyBudget;
 import co.edu.corhuila.synkro.auth.application.usecase.LoginUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.RefreshUseCase;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,12 +28,14 @@ public class AuthController {
     public record TokenPairResponse(String accessToken, String refreshToken, String tokenType, long expiresIn) {}
 
     private final LoginUseCase loginUseCase;
+    private final LoginConcurrencyBudget loginBudget;
     private final RefreshUseCase refreshUseCase;
     private final long expiresInSeconds;
 
     public AuthController(LoginUseCase loginUseCase, RefreshUseCase refreshUseCase,
-                          @Value("${synkro.auth.access-token-ttl:PT1H}") Duration accessTokenTtl) {
+                          @Value("${synkro.auth.access-token-ttl:PT1H}") Duration accessTokenTtl, LoginConcurrencyBudget loginBudget) {
         this.loginUseCase = loginUseCase;
+        this.loginBudget = loginBudget;
         this.refreshUseCase = refreshUseCase;
         this.expiresInSeconds = accessTokenTtl.toSeconds();
     }
@@ -45,7 +48,9 @@ public class AuthController {
         if (!problems.isEmpty()) {
             throw new RequestValidationException(problems);
         }
-        return tokenPair(loginUseCase.execute(request.email(), request.password()));
+        try (var permit = loginBudget.acquire()) {
+            return tokenPair(loginUseCase.execute(request.email(), request.password()));
+        }
     }
 
     @PostMapping("/refresh")

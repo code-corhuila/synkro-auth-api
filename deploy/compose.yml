@@ -5,6 +5,8 @@ services:
       dockerfile: deploy/Dockerfile
     environment:
       SERVER_PORT: "8080"
+      AUTH_LOGIN_MAX_CONCURRENT: ${AUTH_LOGIN_MAX_CONCURRENT:-2}
+      AUTH_LOGIN_OVERLOAD_RETRY_SECONDS: ${AUTH_LOGIN_OVERLOAD_RETRY_SECONDS:-1}
       # The service fails fast at startup if this file is missing or not a valid RSA key.
       JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
       # The database of the instance and the one login the service may use. The service refuses

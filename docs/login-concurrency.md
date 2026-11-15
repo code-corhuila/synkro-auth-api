@@ -15,3 +15,12 @@ The composition root declares `AUTH_LOGIN_MAX_CONCURRENT` (initial conservative 
 - AC5: core and HTTP tests run in the existing Maven CI job. Record source, command, request/status counts, configured capacity and peak work in the execution section after actually running. No hosted success is inferred from a workflow declaration.
 
 Canonical Auth OpenAPI/traceability reconciliation is handed off to synkro-docs under the existing documentation process; this owning-service contract extension and its tests precede implementation. No new endpoint, database schema or domain entity is introduced.
+
+
+## Executed verification — 2026-11-15
+
+`mvn -B -q clean verify` with Java 21.0.12 and the pinned Auth DB schema on owned disposable PostgreSQL: **745 tests, zero failures/errors/skips**. Global LINE coverage: **95.87%**. Existing coverage gates passed unchanged. [Source fingerprints and layer results](evidence/login-concurrency-verification.json).
+
+The initial permissive budget scaffold produced two failing assertions/tests before implementation. The real-HTTP controlled-password run sent seven requests: two observed 200 responses, four 429 responses and one cancelled client; capacity and measured peak password work were both 2, followed by a successful 200 recovery. Completion, invalid credentials and adapter-exception release also passed. Controlled password/user ports distinguish that experiment from the separate real PostgreSQL integration suites in the complete build.
+
+This is local execution, not a GitHub Actions success, independent review, integration, deployment or formal issue closure. Test-first commits introduce the specifications; the following implementation commit makes that snapshot runnable. Original red runs used executable scaffolding in the working tree, not a claim that the later commit had already run.

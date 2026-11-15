@@ -13,3 +13,8 @@ spring:
     init:
       # No schema.sql or data.sql: migrations belong to synkro-auth-db and never run at startup.
       mode: never
+
+synkro:
+  auth:
+    login-max-concurrent: ${AUTH_LOGIN_MAX_CONCURRENT:2}
+    login-overload-retry-seconds: ${AUTH_LOGIN_OVERLOAD_RETRY_SECONDS:1}

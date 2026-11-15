@@ -28,9 +28,8 @@ class LoginUseCaseTest {
     void setUp() {
         issuer = new RecordingTokenIssuer();
         store = new FakeRefreshTokenStore();
-        login = new LoginUseCase(
-            users(user("ana@synkro.test", true), user("off@synkro.test", false)),
-            PASSWORD_HASHER, issuer, store, HASH, CLOCK, REFRESH_TTL);
+        var repo = users(user("ana@synkro.test", true), user("u-2", "off@synkro.test", false));
+        login = new LoginUseCase(repo, PASSWORD_HASHER, issuer, Fakes.issuance(repo, store), HASH, CLOCK, REFRESH_TTL);
     }
 
     @Test

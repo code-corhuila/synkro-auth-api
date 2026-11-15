@@ -1,8 +1,8 @@
 package co.edu.corhuila.synkro.auth.application.usecase;
 
+import co.edu.corhuila.synkro.auth.application.port.out.CredentialIssuanceStore;
 import co.edu.corhuila.synkro.auth.application.port.out.HashFunction;
 import co.edu.corhuila.synkro.auth.application.port.out.PasswordHasher;
-import co.edu.corhuila.synkro.auth.application.port.out.RefreshTokenStore;
 import co.edu.corhuila.synkro.auth.application.port.out.TokenIssuer;
 import co.edu.corhuila.synkro.auth.application.port.out.UserRepository;
 import co.edu.corhuila.synkro.auth.domain.model.Emails;
@@ -17,7 +17,7 @@ public class LoginUseCase {
     private final UserRepository userRepository;
     private final PasswordHasher passwordHasher;
     private final TokenIssuer tokenIssuer;
-    private final RefreshTokenStore refreshTokenStore;
+    private final CredentialIssuanceStore issuance;
     private final HashFunction hashFunction;
     private final Clock clock;
     private final Duration refreshTokenTtl;
@@ -26,12 +26,12 @@ public class LoginUseCase {
     private final String standInHash;
 
     public LoginUseCase(UserRepository userRepository, PasswordHasher passwordHasher, TokenIssuer tokenIssuer,
-                        RefreshTokenStore refreshTokenStore, HashFunction hashFunction,
+                        CredentialIssuanceStore issuance, HashFunction hashFunction,
                         Clock clock, Duration refreshTokenTtl) {
         this.userRepository = userRepository;
         this.passwordHasher = passwordHasher;
         this.tokenIssuer = tokenIssuer;
-        this.refreshTokenStore = refreshTokenStore;
+        this.issuance = issuance;
         this.hashFunction = hashFunction;
         this.clock = clock;
         this.refreshTokenTtl = refreshTokenTtl;
@@ -50,9 +50,15 @@ public class LoginUseCase {
             .filter(u -> password != null && passwordMatches)
             .orElseThrow(InvalidCredentialsException::new);
 
-        String accessToken = tokenIssuer.issueAccessToken(user.getUserId(), user.getRole());
+        // The bcrypt check above ran outside any lock. The credential is stored by one unit that takes the owner's lock,
+        // reads the user as it is now and refuses if the stored hash is no longer the one verified (a reset committed in
+        // between) or the user is no longer active. The same generic 401 answers every refusal. Nothing is returned
+        // before the unit commits, and the claims come from the identity the unit read, not from the earlier lookup.
         String refreshToken = tokenIssuer.issueRefreshToken();
-        refreshTokenStore.save(hashFunction.hash(refreshToken), user.getUserId(), clock.instant().plus(refreshTokenTtl));
+        SystemUser current = issuance.persistRefresh(user.getUserId(), user.getPasswordHash(), hashFunction.hash(refreshToken),
+                clock.instant().plus(refreshTokenTtl))
+            .orElseThrow(InvalidCredentialsException::new);
+        String accessToken = tokenIssuer.issueAccessToken(current.getUserId(), current.getRole());
 
         return new LoginResult(accessToken, refreshToken);
     }

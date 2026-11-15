@@ -34,6 +34,21 @@ final class PostgresTestDatabase {
         return new TransactionTemplate(transactionManager(jdbc));
     }
 
+    private static final String BCRYPT_ALPHABET = "./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
+
+    /**
+     * A string with the shape of a bcrypt hash ({@code $2a$12$} and 53 characters). The receipt table refuses anything
+     * else, so the tests that hand a hash straight to the store need one. It is random and verifies no password.
+     */
+    static String bcryptShaped() {
+        StringBuilder hash = new StringBuilder("$2a$12$");
+        for (int i = 0; i < 53; i++) {
+            hash.append(BCRYPT_ALPHABET.charAt(RANDOM.nextInt(BCRYPT_ALPHABET.length())));
+        }
+        return hash.toString();
+    }
+
     static String uniqueEmail() {
         return "it-" + UUID.randomUUID() + "@synkro.test";
     }

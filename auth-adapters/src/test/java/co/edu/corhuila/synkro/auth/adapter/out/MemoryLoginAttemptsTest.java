@@ -52,4 +52,20 @@ class MemoryLoginAttemptsTest {
         } finally {release.countDown();}
     }
     @Test void rejectsInvalidCapacity(){assertThatIllegalArgumentException().isThrownBy(()->new MemoryLoginAttempts(0));}
+    @Test void differentAccountsWithCollidingHashCodesCanVerifyConcurrently() throws Exception {
+        var store=new MemoryLoginAttempts(2);
+        var entered=new CountDownLatch(2);var release=new CountDownLatch(1);
+        try(var pool=Executors.newFixedThreadPool(2)) {
+            var tasks=new ArrayList<Future<?>>();
+            for(String key:java.util.List.of("Aa","BB"))tasks.add(pool.submit(()->store.compute(key,s->{
+                entered.countDown();
+                try{if(!release.await(5,TimeUnit.SECONDS))throw new IllegalStateException("barrier");}
+                catch(InterruptedException e){throw new IllegalStateException(e);}
+                return new Update<>(state(1),null);
+            })));
+            try {assertThat(entered.await(1,TimeUnit.SECONDS)).isTrue();}
+            finally {release.countDown();}
+            for(var task:tasks)task.get(5,TimeUnit.SECONDS);
+        }
+    }
 }

@@ -31,6 +31,7 @@ import co.edu.corhuila.synkro.auth.application.usecase.GetServiceTokenUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.GetUserUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.IssueServiceTokenUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.LoginUseCase;
+import co.edu.corhuila.synkro.auth.application.usecase.LoginConcurrencyBudget;
 import co.edu.corhuila.synkro.auth.application.usecase.AccountLoginProtection;
 import co.edu.corhuila.synkro.auth.adapter.out.memory.MemoryLoginAttempts;
 import co.edu.corhuila.synkro.auth.application.usecase.LogoutUseCase;
@@ -181,6 +182,13 @@ public class AuthBeansConfig {
     @Bean
     public SearchUsersUseCase searchUsersUseCase(UserRepository users) {
         return new SearchUsersUseCase(users);
+    }
+
+    @Bean
+    public LoginConcurrencyBudget loginConcurrencyBudget(
+            @Value("${synkro.auth.login-max-concurrent:2}") int capacity,
+            @Value("${synkro.auth.login-overload-retry-seconds:1}") int retrySeconds) {
+        return new LoginConcurrencyBudget(capacity, retrySeconds);
     }
 
     @Bean

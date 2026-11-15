@@ -149,4 +149,4 @@ See [Git conventions](https://github.com/code-corhuila/synkro-docs/blob/main/00-
 
 ## Login security extension
 
-See [the owning-service design and acceptance map](docs/login-account-protection.md). Auth can now reject login with the common `429 TOO_MANY_REQUESTS` envelope and `Retry-After`; Auth-generated responses use `Cache-Control: no-store`. This reviewed source change is separate from QA/main integration and deployment.
+See [account login protection](docs/login-account-protection.md) and [concurrent login admission](docs/login-concurrency.md). Both controls apply. Auth rejects blocked login attempts with the common `429 TOO_MANY_REQUESTS` envelope and `Retry-After`; Auth-generated responses use `Cache-Control: no-store`. QA/main promotion and deployment are separate steps.

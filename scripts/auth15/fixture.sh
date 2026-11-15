@@ -34,8 +34,8 @@ WORKSPACE="${AUTH15_WORKSPACE:-$(cd "$REPO/.." && { pwd -W 2>/dev/null || pwd; }
 AUTH_DB_REPO="${AUTH15_AUTH_DB_REPO:-$WORKSPACE/synkro-auth-db}"
 GATEWAY_REPO="${AUTH15_GATEWAY_REPO:-$WORKSPACE/synkro-api-gateway}"
 # Pinned like the CI job: a push to synkro-auth-db or synkro-api-gateway cannot change what this run proves.
-AUTH_DB_REF="${AUTH15_AUTH_DB_REF:-c338bf95190fc20cbff55c13bb83c279a1febdf9}"
-GATEWAY_REF="${AUTH15_GATEWAY_REF:-24a4ab1}"
+AUTH_DB_REF="${AUTH15_AUTH_DB_REF:-a4810a0fa30f4f8eb73504e7249a9667c45384e8}"
+GATEWAY_REF="${AUTH15_GATEWAY_REF:-81c8125dda619dadda2163a0f0e2e50b84b10583}"
 
 # The Docker CLI wants a host path for a bind mount; Git Bash gives /c/... and Docker Desktop accepts C:/...
 hostpath() { if command -v cygpath > /dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }

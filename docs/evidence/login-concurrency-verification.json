@@ -1,0 +1,32 @@
+{
+  "verifiedUTC": "2026-11-15T16:33:08.825767+00:00",
+  "baseline": "1a1cdebe8bf89d2283a0715e8c35cfcffdc2a1cf",
+  "command": "mvn -B -q clean verify with disposable PostgreSQL 16",
+  "java": "21.0.12",
+  "authDB": "2b6252237bd5a4911ec8db13e99008a059d95e42",
+  "database": "owned disposable PostgreSQL 16; no persistent target",
+  "tests": 745,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "lineCoveragePercent": {
+    "auth-coverage": 95.87,
+    "co/edu/corhuila/synkro/auth/adapter/out/crypto": 92.54,
+    "co/edu/corhuila/synkro/auth/domain/model": 100.0,
+    "co/edu/corhuila/synkro/auth/application/usecase": 99.76,
+    "co/edu/corhuila/synkro/auth/app": 92.45,
+    "co/edu/corhuila/synkro/auth/application/port/out": 100.0,
+    "co/edu/corhuila/synkro/auth/adapter/out/persistence/jdbc": 96.44
+  },
+  "hostedCI": "NOT_CLAIMED; inspect this PR run separately",
+  "sourceBlobs": {
+    "auth-app/src/main/java/co/edu/corhuila/synkro/auth/app/ApiExceptionHandler.java": "c1c33dd840d9f7ba6143b8a872b875c7fee34da9",
+    "auth-app/src/main/java/co/edu/corhuila/synkro/auth/app/AuthBeansConfig.java": "6427817c39bca068ef41b5cd344182d477647b34",
+    "auth-app/src/main/java/co/edu/corhuila/synkro/auth/app/AuthController.java": "e6201a4d5582329a17487215d2bc32fd3d54f621",
+    "auth-app/src/main/resources/application.yml": "7fe876f205549ab38eb7775a6addaeca30a28d9e",
+    "auth-app/src/test/java/co/edu/corhuila/synkro/auth/app/LoginCapacityHttpTest.java": "d7e9cb618cc4ed9d9ae1d3f400cd7169ff793725",
+    "auth-core/src/main/java/co/edu/corhuila/synkro/auth/application/usecase/LoginConcurrencyBudget.java": "f73f855d70bff1ec1052af89c3005b8e85bb98d5",
+    "auth-core/src/main/java/co/edu/corhuila/synkro/auth/application/usecase/LoginThrottledException.java": "e6d847efa0478c9b8348e8c7bc74078d4ca9ed35",
+    "auth-core/src/test/java/co/edu/corhuila/synkro/auth/application/usecase/LoginConcurrencyBudgetTest.java": "4baa2ea4bcb90f6d7c18b0d0cc5db67330c16228"
+  }
+}

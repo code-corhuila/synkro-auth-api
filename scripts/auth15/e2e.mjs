@@ -160,7 +160,7 @@ const service = serviceIssued.json?.token;
 if (service) secret(service);
 check('E2E-11', 'AUTH15-02', 'a genuine SERVICE token is issued by the ADMIN for the negative cases', serviceIssued.status === 201 && Boolean(service));
 
-const target = registerBody('blocked', 'INVENTORY', newPassword());
+const target = registerBody('blocked', 'ADMIN', newPassword());
 const before = totals();
 const unauth = {
   'no credentials': {},
@@ -177,13 +177,32 @@ for (const [label, options] of Object.entries(unauth)) {
 }
 const forbiddenTokens = { SALESPERSON: sales, INVENTORY: inventory, SERVICE: service };
 for (const [role, token] of Object.entries(forbiddenTokens)) {
-  const response = await call('POST', '/api/v1/auth/register', { token, body: target, key: `auth15-${run}-key-blocked` });
-  check(`E2E-13:${role}`, 'AUTH15-02', `${role} -> 403 on a first attempt`, response.status === 403 && !response.text.includes(target.email), `status=${response.status}`);
+  const body = registerBody(`blocked-${role.toLowerCase()}`, 'ADMIN', newPassword());
+  const key = `auth15-${run}-blocked-${role.toLowerCase()}`;
+  const snapshot = totals();
+  const prior = rowsFor(body.email);
+  const priorKey = keyRows(key);
+  const response = await call('POST', '/api/v1/auth/register', { token, body, key });
+  check(`E2E-13:${role}`, 'AUTH15-02', `${role} requesting ADMIN -> 403 with no successful writes`,
+    response.status === 403 && response.json?.error === 'FORBIDDEN'
+    && !response.text.includes(body.email) && !response.json?.userId
+    && totals() === snapshot && JSON.stringify(rowsFor(body.email)) === JSON.stringify(prior)
+    && prior.users === 0 && prior.audits === 0 && priorKey === 0 && keyRows(key) === 0,
+    `status=${response.status}`);
 }
 for (const [role, token] of Object.entries(forbiddenTokens)) {
+  const snapshot = totals();
+  const original = sql(`SELECT row_to_json(u)::text FROM auth_schema.system_user u WHERE user_id = ${quote(salesId)}`);
+  const priorKey = keyRows(salesKey);
+  const priorAudit = rowsFor(salesBody.email).audits;
   const response = await call('POST', '/api/v1/auth/register', { token, body: salesBody, key: salesKey });
-  check(`E2E-14:${role}`, 'AUTH15-02', `${role} replaying the ADMIN's exact request and key -> 403, nothing disclosed`,
-    response.status === 403 && !response.text.includes(salesId) && !response.text.includes(salesBody.email), `status=${response.status}`);
+  check(`E2E-14:${role}`, 'AUTH15-02', `${role} replaying the ADMIN key -> 403, original user/key/audit unchanged`,
+    response.status === 403 && response.json?.error === 'FORBIDDEN'
+    && !response.text.includes(salesId) && !response.text.includes(salesBody.email) && !response.json?.userId
+    && totals() === snapshot && keyRows(salesKey) === priorKey && priorKey === 1
+    && rowsFor(salesBody.email).audits === priorAudit && priorAudit === 1
+    && sql(`SELECT row_to_json(u)::text FROM auth_schema.system_user u WHERE user_id = ${quote(salesId)}`) === original,
+    `status=${response.status}`);
 }
 const ghost = signedToken(signingKeyPem, { sub: randomUUID(), roles: ['ADMIN'], exp: Math.floor(Date.now() / 1000) + 600 });
 const ghostResponse = await call('POST', '/api/v1/auth/register', { token: ghost, body: target, key: `auth15-${run}-key-blocked` });

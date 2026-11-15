@@ -62,10 +62,11 @@ jobs:
       # Pinned to a commit so a push to synkro-auth-db cannot turn this repository's CI red
       # by surprise. Bump it, in a PR, when the service needs a newer schema.
       # c338bf95 is the merge of the user_creation_audit migrations (V014-V017), which registration writes to.
-      # 80898f4b is the actual QA integration of synkro-auth-db PR #28. It includes password_reset_audit
-      # (V018-V021) and the private password_reset_receipt, grants and cleanup function (V022-V026, ADR-021).
-      # Its tree equals the verified QA candidate bb0aec32; the dependency names the integrated QA revision.
-      AUTH_DB_REF: 80898f4be3bd923da1231af66ab3d94a75880228
+      # a4810a0f is the integrated QA revision of synkro-auth-db used by the gateway-registration-security job
+      # below. It is the schema pin for this QA candidate; no tree equality with any earlier revision is claimed.
+      # The schema checks below still require password_reset_audit (V018-V021) and the private
+      # password_reset_receipt, grants and cleanup function (V022-V026, ADR-021).
+      AUTH_DB_REF: a4810a0fa30f4f8eb73504e7249a9667c45384e8
       AUTH_PORTAL_REF: 4ef4a3a4da20492da6eeb50f4417b88f1332a15b
       # The tag synkro-auth-db's own CI and deploy/compose.yml run.
       FLYWAY_IMAGE: flyway/flyway:11.20.3-alpine
@@ -282,3 +283,45 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: ci_admin_pw
         run: bash tests/pact/ci-provider.sh
+
+  gateway-registration-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AUTH15_PRIVATE_DIR: ${{ github.workspace }}/../auth280-private
+      AUTH15_AUTH_DB_REPO: ${{ github.workspace }}/synkro-auth-db
+      AUTH15_GATEWAY_REPO: ${{ github.workspace }}/synkro-api-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: code-corhuila/synkro-auth-db
+          ref: a4810a0fa30f4f8eb73504e7249a9667c45384e8
+          path: synkro-auth-db
+      - uses: actions/checkout@v4
+        with:
+          repository: code-corhuila/synkro-api-gateway
+          ref: 81c8125dda619dadda2163a0f0e2e50b84b10583
+          path: synkro-api-gateway
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Real Gateway, Auth and PostgreSQL security regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$AUTH15_PRIVATE_DIR"
+          chmod 700 "$AUTH15_PRIVATE_DIR"
+          scripts/auth15/fixture.sh up
+          node scripts/auth15/e2e.mjs --evidence "$RUNNER_TEMP/auth280-results.json"
+      - name: Remove only the owned disposable fixture
+        if: always()
+        shell: bash
+        run: scripts/auth15/fixture.sh down
+      - name: Upload sanitized checks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-registration-security
+          path: ${{ runner.temp }}/auth280-results.json
+          if-no-files-found: warn

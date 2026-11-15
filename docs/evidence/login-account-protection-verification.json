@@ -1,0 +1,37 @@
+{
+  "verifiedUTC": "2026-11-15T16:21:41.205214+00:00",
+  "baseline": "1a1cdebe8bf89d2283a0715e8c35cfcffdc2a1cf",
+  "command": "mvn -B -q clean verify with disposable PostgreSQL 16",
+  "java": "21.0.12",
+  "authDB": "2b6252237bd5a4911ec8db13e99008a059d95e42",
+  "database": "owned disposable PostgreSQL 16; no persistent target",
+  "tests": 753,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "lineCoveragePercent": {
+    "auth-coverage": 95.95,
+    "co/edu/corhuila/synkro/auth/adapter/out/crypto": 92.54,
+    "co/edu/corhuila/synkro/auth/domain/model": 100.0,
+    "co/edu/corhuila/synkro/auth/application/usecase": 99.55,
+    "co/edu/corhuila/synkro/auth/app": 92.49,
+    "co/edu/corhuila/synkro/auth/application/port/out": 100.0,
+    "co/edu/corhuila/synkro/auth/adapter/out/memory": 100.0,
+    "co/edu/corhuila/synkro/auth/adapter/out/persistence/jdbc": 96.44
+  },
+  "hostedCI": "NOT_CLAIMED; inspect this PR run separately",
+  "sourceBlobs": {
+    "auth-adapters/src/main/java/co/edu/corhuila/synkro/auth/adapter/out/memory/MemoryLoginAttempts.java": "967d278c31b72a49fba1ec3762bf7f69d4dc2d18",
+    "auth-adapters/src/test/java/co/edu/corhuila/synkro/auth/adapter/out/MemoryLoginAttemptsTest.java": "88fe4819bb5c7ffe489a88275a2aefd5aa90b9e6",
+    "auth-app/src/main/java/co/edu/corhuila/synkro/auth/app/ApiExceptionHandler.java": "c1c33dd840d9f7ba6143b8a872b875c7fee34da9",
+    "auth-app/src/main/java/co/edu/corhuila/synkro/auth/app/AuthBeansConfig.java": "a246226272b0a4aae452972e4997fc6a594246c5",
+    "auth-app/src/main/java/co/edu/corhuila/synkro/auth/app/LoginAttemptsCleanup.java": "250486e5abc03944947212bbe1faf267987d9dbc",
+    "auth-app/src/main/resources/application.yml": "c86ed7fd823a02af59bb37d6aa1ac84cb27db14b",
+    "auth-app/src/test/java/co/edu/corhuila/synkro/auth/app/AccountLoginHttpTest.java": "762ff152f17b46b5b36b1b29b01d15268a1ed3e5",
+    "auth-core/src/main/java/co/edu/corhuila/synkro/auth/application/port/out/LoginAttemptStore.java": "102761d93a20628b47628a420e3fb3dcea950a04",
+    "auth-core/src/main/java/co/edu/corhuila/synkro/auth/application/usecase/AccountLoginProtection.java": "fdfbfbca2e9201d65c1fbb02312d5844561bab84",
+    "auth-core/src/main/java/co/edu/corhuila/synkro/auth/application/usecase/LoginThrottledException.java": "e6d847efa0478c9b8348e8c7bc74078d4ca9ed35",
+    "auth-core/src/main/java/co/edu/corhuila/synkro/auth/application/usecase/LoginUseCase.java": "8e2ab59d3b1a7f5a6c617afb9a58d6d22d5cd319",
+    "auth-core/src/test/java/co/edu/corhuila/synkro/auth/application/usecase/AccountLoginProtectionTest.java": "0e4d258d0ec3494d48084f310b1d7fe81218009f"
+  }
+}

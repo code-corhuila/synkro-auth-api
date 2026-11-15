@@ -1,0 +1,523 @@
+{
+  "consumer": {
+    "name": "AuthPortal"
+  },
+  "interactions": [
+    {
+      "description": "pact-auth-reset-denied",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "the caller is a salesperson"
+        }
+      ],
+      "request": {
+        "body": {
+          "content": {
+            "confirmPassword": "[redacted]",
+            "newPassword": "[redacted]"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "generators": {
+          "path": {
+            "expression": "/api/v1/auth/users/${targetId}/password-reset",
+            "type": "ProviderState"
+          }
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ],
+          "Idempotency-Key": [
+            "pact-auth-reset-denied"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.confirmPassword": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.newPassword": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          },
+          "path": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          }
+        },
+        "method": "POST",
+        "path": "/api/v1/auth/users/550e8400-e29b-41d4-a716-446655440019/password-reset"
+      },
+      "response": {
+        "body": {
+          "content": {
+            "error": "FORBIDDEN",
+            "message": "Role SALESPERSON is not authorized to reset passwords",
+            "traceId": "pact-reset"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.traceId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          }
+        },
+        "status": 403
+      },
+      "type": "Synchronous/HTTP"
+    },
+    {
+      "description": "pact-auth-reset-expired",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "the reset receipt expired"
+        }
+      ],
+      "request": {
+        "body": {
+          "content": {
+            "confirmPassword": "[redacted]",
+            "newPassword": "[redacted]"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "generators": {
+          "path": {
+            "expression": "/api/v1/auth/users/${targetId}/password-reset",
+            "type": "ProviderState"
+          }
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ],
+          "Idempotency-Key": [
+            "pact-auth-reset-expired"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.confirmPassword": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.newPassword": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          },
+          "path": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          }
+        },
+        "method": "POST",
+        "path": "/api/v1/auth/users/550e8400-e29b-41d4-a716-446655440019/password-reset"
+      },
+      "response": {
+        "body": {
+          "content": {
+            "details": [
+              {
+                "field": "Idempotency-Key",
+                "message": "The Idempotency-Key was already used with a different request"
+              }
+            ],
+            "error": "BUSINESS_RULE_VIOLATION",
+            "message": "The Idempotency-Key was already used with a different request",
+            "traceId": "pact-reset"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.traceId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          }
+        },
+        "status": 422
+      },
+      "type": "Synchronous/HTTP"
+    },
+    {
+      "description": "pact-auth-reset-purged",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "the expired reset receipt was purged"
+        }
+      ],
+      "request": {
+        "body": {
+          "content": {
+            "confirmPassword": "[redacted]",
+            "newPassword": "[redacted]"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "generators": {
+          "path": {
+            "expression": "/api/v1/auth/users/${targetId}/password-reset",
+            "type": "ProviderState"
+          }
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ],
+          "Idempotency-Key": [
+            "pact-auth-reset-purged"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.confirmPassword": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.newPassword": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          },
+          "path": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          }
+        },
+        "method": "POST",
+        "path": "/api/v1/auth/users/550e8400-e29b-41d4-a716-446655440019/password-reset"
+      },
+      "response": {
+        "body": {
+          "content": {
+            "details": [
+              {
+                "field": "Idempotency-Key",
+                "message": "The Idempotency-Key was already used with a different request"
+              }
+            ],
+            "error": "BUSINESS_RULE_VIOLATION",
+            "message": "The Idempotency-Key was already used with a different request",
+            "traceId": "pact-reset"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.traceId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          }
+        },
+        "status": 422
+      },
+      "type": "Synchronous/HTTP"
+    },
+    {
+      "description": "pact-auth-reset-replay",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "the original reset preceded a later password change"
+        }
+      ],
+      "request": {
+        "body": {
+          "content": {
+            "confirmPassword": "[redacted]",
+            "newPassword": "[redacted]"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "generators": {
+          "path": {
+            "expression": "/api/v1/auth/users/${targetId}/password-reset",
+            "type": "ProviderState"
+          }
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ],
+          "Idempotency-Key": [
+            "pact-auth-reset-replay"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.confirmPassword": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.newPassword": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          },
+          "path": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          }
+        },
+        "method": "POST",
+        "path": "/api/v1/auth/users/550e8400-e29b-41d4-a716-446655440019/password-reset"
+      },
+      "response": {
+        "body": {
+          "content": {
+            "passwordResetAt": "2026-11-11T12:00:00Z",
+            "userId": "550e8400-e29b-41d4-a716-446655440019"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Cache-Control": [
+            "no-store"
+          ],
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.passwordResetAt": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^\\d{4}-\\d{2}-\\d{2}T.*Z$"
+                }
+              ]
+            },
+            "$.userId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      },
+      "type": "Synchronous/HTTP"
+    },
+    {
+      "description": "pact-auth-reset-success",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "an active salesperson can be reset"
+        }
+      ],
+      "request": {
+        "body": {
+          "content": {
+            "confirmPassword": "[redacted]",
+            "newPassword": "[redacted]"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "generators": {
+          "path": {
+            "expression": "/api/v1/auth/users/${targetId}/password-reset",
+            "type": "ProviderState"
+          }
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ],
+          "Idempotency-Key": [
+            "pact-auth-reset-success"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.confirmPassword": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.newPassword": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          },
+          "path": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          }
+        },
+        "method": "POST",
+        "path": "/api/v1/auth/users/550e8400-e29b-41d4-a716-446655440019/password-reset"
+      },
+      "response": {
+        "body": {
+          "content": {
+            "passwordResetAt": "2026-11-11T12:00:00Z",
+            "userId": "550e8400-e29b-41d4-a716-446655440019"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Cache-Control": [
+            "no-store"
+          ],
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.passwordResetAt": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "^\\d{4}-\\d{2}-\\d{2}T.*Z$"
+                }
+              ]
+            },
+            "$.userId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      },
+      "type": "Synchronous/HTTP"
+    }
+  ],
+  "metadata": {
+    "pact-js": {
+      "version": "17.1.4"
+    },
+    "pactRust": {
+      "ffi": "0.5.8",
+      "models": "1.3.16"
+    },
+    "pactSpecification": {
+      "version": "4.0"
+    }
+  },
+  "provider": {
+    "name": "AuthAPI"
+  }
+}

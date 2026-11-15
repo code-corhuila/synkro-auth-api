@@ -150,3 +150,7 @@ See [Git conventions](https://github.com/code-corhuila/synkro-docs/blob/main/00-
 ## Gateway registration security regression
 
 [Security issue #280 acceptance map](docs/gateway-registration-security.md) reuses the real Gateway/Auth/PostgreSQL fixture and verifies forbidden ADMIN registration/replay without successful writes. The dedicated CI job runs that same script.
+
+## Login security extension
+
+See [the owning-service design and acceptance map](docs/login-account-protection.md). Auth can now reject login with the common `429 TOO_MANY_REQUESTS` envelope and `Retry-After`; Auth-generated responses use `Cache-Control: no-store`. This reviewed source change is separate from QA/main integration and deployment.

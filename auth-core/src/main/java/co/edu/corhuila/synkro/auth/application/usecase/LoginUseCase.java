@@ -24,10 +24,18 @@ public class LoginUseCase {
     // Verified when there is no usable user, so that every failed login costs one bcrypt verification
     // at the same cost factor and its response time says nothing about which emails exist.
     private final String standInHash;
+    private final AccountLoginProtection accountProtection;
 
     public LoginUseCase(UserRepository userRepository, PasswordHasher passwordHasher, TokenIssuer tokenIssuer,
                         CredentialIssuanceStore issuance, HashFunction hashFunction,
                         Clock clock, Duration refreshTokenTtl) {
+        this(userRepository,passwordHasher,tokenIssuer,issuance,hashFunction,clock,refreshTokenTtl,null);
+    }
+
+    public LoginUseCase(UserRepository userRepository, PasswordHasher passwordHasher, TokenIssuer tokenIssuer,
+                        CredentialIssuanceStore issuance, HashFunction hashFunction,
+                        Clock clock, Duration refreshTokenTtl, AccountLoginProtection accountProtection) {
+        this.accountProtection = accountProtection;
         this.userRepository = userRepository;
         this.passwordHasher = passwordHasher;
         this.tokenIssuer = tokenIssuer;
@@ -39,6 +47,12 @@ public class LoginUseCase {
     }
 
     public LoginResult execute(String email, String password) {
+        String normalized = Emails.normalize(email);
+        if (accountProtection == null) return authenticate(normalized,password);
+        return accountProtection.execute(normalized, () -> authenticate(normalized,password));
+    }
+
+    private LoginResult authenticate(String email,String password) {
         Optional<SystemUser> found = userRepository.findByEmail(Emails.normalize(email));
 
         // The verification runs whatever the outcome of the lookup; the decision comes after it.

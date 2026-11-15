@@ -16,6 +16,8 @@ spring:
 
 synkro:
   auth:
+    login-max-concurrent: ${AUTH_LOGIN_MAX_CONCURRENT:2}
+    login-overload-retry-seconds: ${AUTH_LOGIN_OVERLOAD_RETRY_SECONDS:1}
     login-failure-threshold: ${AUTH_LOGIN_FAILURE_THRESHOLD:3}
     login-window-seconds: ${AUTH_LOGIN_WINDOW_SECONDS:60}
     login-initial-cooldown-seconds: ${AUTH_LOGIN_INITIAL_COOLDOWN_SECONDS:30}

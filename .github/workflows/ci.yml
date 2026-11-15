@@ -287,7 +287,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      AUTH15_PRIVATE_DIR: ${{ runner.temp }}/auth280-private
+      AUTH15_PRIVATE_DIR: ${{ github.workspace }}/../auth280-private
       AUTH15_AUTH_DB_REPO: ${{ github.workspace }}/synkro-auth-db
       AUTH15_GATEWAY_REPO: ${{ github.workspace }}/synkro-api-gateway
     steps:

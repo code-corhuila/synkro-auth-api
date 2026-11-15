@@ -145,3 +145,8 @@ See [Git conventions](https://github.com/code-corhuila/synkro-docs/blob/main/00-
 <a id="sessions-logout-and-refresh-token-reuse"></a>
 <a id="service-tokens"></a>
 <a id="token-validation"></a>
+
+
+## Gateway registration security regression
+
+[Security issue #280 acceptance map](docs/gateway-registration-security.md) reuses the real Gateway/Auth/PostgreSQL fixture and verifies forbidden ADMIN registration/replay without successful writes. The dedicated CI job runs that same script.

@@ -1,0 +1,382 @@
+{
+  "run": "0de06fce",
+  "gateway": "http://127.0.0.1:18085",
+  "revisions": {
+    "authImage": [
+      "AUTH_IMAGE=auth15/synkro-auth-api:1a1cdebe8bf8",
+      "GATEWAY_IMAGE=auth15/synkro-api-gateway:24a4ab157bb0"
+    ]
+  },
+  "results": [
+    {
+      "id": "E2E-01",
+      "criterion": "AUTH15-01",
+      "title": "real login of the initial ADMIN through the gateway",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "E2E-02",
+      "criterion": "AUTH15-01",
+      "title": "the ADMIN token is a human ADMIN token (roles=[ADMIN], sub=user id)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "E2E-03",
+      "criterion": "AUTH15-01",
+      "title": "ADMIN registers a SALESPERSON: 201, Location points at the user, correlation echoed",
+      "ok": true,
+      "detail": "status=201"
+    },
+    {
+      "id": "E2E-04",
+      "criterion": "AUTH15-01",
+      "title": "the 201 body has the UserResponse fields and no password or hash",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "E2E-05",
+      "criterion": "AUTH15-01",
+      "title": "safe read by the known id returns the same user",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "E2E-06",
+      "criterion": "AUTH15-01",
+      "title": "the new account authenticates against the real service with its own role and id",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "E2E-07",
+      "criterion": "AUTH15-01",
+      "title": "ADMIN also creates INVENTORY and ADMIN accounts (each permitted human role)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "E2E-08",
+      "criterion": "AUTH15-04",
+      "title": "the stored credential is a bcrypt hash that is not the password",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "E2E-09",
+      "criterion": "AUTH15-04",
+      "title": "exactly one audit row attributes the creation to the ADMIN token subject and the request correlation id",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "E2E-10",
+      "criterion": "AUTH15-04",
+      "title": "the audit row and the key row are single and point at the created user",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "E2E-11",
+      "criterion": "AUTH15-02",
+      "title": "a genuine SERVICE token is issued by the ADMIN for the negative cases",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "E2E-12:no credentials",
+      "criterion": "AUTH15-02",
+      "title": "no credentials -> 401",
+      "ok": true,
+      "detail": "status=401"
+    },
+    {
+      "id": "E2E-12:malformed token",
+      "criterion": "AUTH15-02",
+      "title": "malformed token -> 401",
+      "ok": true,
+      "detail": "status=401"
+    },
+    {
+      "id": "E2E-12:tampered signature",
+      "criterion": "AUTH15-02",
+      "title": "tampered signature -> 401",
+      "ok": true,
+      "detail": "status=401"
+    },
+    {
+      "id": "E2E-12:expired token",
+      "criterion": "AUTH15-02",
+      "title": "expired token -> 401",
+      "ok": true,
+      "detail": "status=401"
+    },
+    {
+      "id": "E2E-12:token signed by another key",
+      "criterion": "AUTH15-02",
+      "title": "token signed by another key -> 401",
+      "ok": true,
+      "detail": "status=401"
+    },
+    {
+      "id": "E2E-12:unsecured (alg none) token",
+      "criterion": "AUTH15-02",
+      "title": "unsecured (alg none) token -> 401",
+      "ok": true,
+      "detail": "status=401"
+    },
+    {
+      "id": "E2E-12:refresh token as bearer",
+      "criterion": "AUTH15-02",
+      "title": "refresh token as bearer -> 401",
+      "ok": true,
+      "detail": "status=401"
+    },
+    {
+      "id": "E2E-13:SALESPERSON",
+      "criterion": "AUTH15-02",
+      "title": "SALESPERSON requesting ADMIN -> 403 with no successful writes",
+      "ok": true,
+      "detail": "status=403"
+    },
+    {
+      "id": "E2E-13:INVENTORY",
+      "criterion": "AUTH15-02",
+      "title": "INVENTORY requesting ADMIN -> 403 with no successful writes",
+      "ok": true,
+      "detail": "status=403"
+    },
+    {
+      "id": "E2E-13:SERVICE",
+      "criterion": "AUTH15-02",
+      "title": "SERVICE requesting ADMIN -> 403 with no successful writes",
+      "ok": true,
+      "detail": "status=403"
+    },
+    {
+      "id": "E2E-14:SALESPERSON",
+      "criterion": "AUTH15-02",
+      "title": "SALESPERSON replaying the ADMIN key -> 403, original user/key/audit unchanged",
+      "ok": true,
+      "detail": "status=403"
+    },
+    {
+      "id": "E2E-14:INVENTORY",
+      "criterion": "AUTH15-02",
+      "title": "INVENTORY replaying the ADMIN key -> 403, original user/key/audit unchanged",
+      "ok": true,
+      "detail": "status=403"
+    },
+    {
+      "id": "E2E-14:SERVICE",
+      "criterion": "AUTH15-02",
+      "title": "SERVICE replaying the ADMIN key -> 403, original user/key/audit unchanged",
+      "ok": true,
+      "detail": "status=403"
+    },
+    {
+      "id": "E2E-15",
+      "criterion": "AUTH15-02",
+      "title": "a validly signed ADMIN token for a user that does not exist -> 403",
+      "ok": true,
+      "detail": "status=403"
+    },
+    {
+      "id": "E2E-16",
+      "criterion": "AUTH15-02",
+      "title": "no user, key or audit row changed during all refused attempts",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "E2E-17",
+      "criterion": "AUTH15-02",
+      "title": "a SALESPERSON cannot read the user either (lookup is ADMIN-only) -> 403",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "E2E-18",
+      "criterion": "AUTH15-03",
+      "title": "identical authorized replay -> 200 with the original user, once",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "id": "E2E-19",
+      "criterion": "AUTH15-03",
+      "title": "the replay did not overwrite the original audit correlation id",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "E2E-20",
+      "criterion": "AUTH15-03",
+      "title": "a different ADMIN replaying the same request and key gets the original user, no second audit row",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "id": "E2E-21",
+      "criterion": "AUTH15-03",
+      "title": "same key with a changed intention -> 422 naming Idempotency-Key, original not shown",
+      "ok": true,
+      "detail": "status=422"
+    },
+    {
+      "id": "E2E-22",
+      "criterion": "AUTH15-03",
+      "title": "same email with a new key -> 422 BUSINESS_RULE_VIOLATION on email, no key or row left",
+      "ok": true,
+      "detail": "status=422"
+    },
+    {
+      "id": "E2E-23",
+      "criterion": "AUTH15-03",
+      "title": "the same email in another case or with spaces is still a duplicate -> 422",
+      "ok": true,
+      "detail": "status=422"
+    },
+    {
+      "id": "E2E-24:role SERVICE",
+      "criterion": "AUTH15-03",
+      "title": "role SERVICE -> 400 VALIDATION_ERROR, nothing written",
+      "ok": true,
+      "detail": "status=400"
+    },
+    {
+      "id": "E2E-24:unknown role",
+      "criterion": "AUTH15-03",
+      "title": "unknown role -> 400 VALIDATION_ERROR, nothing written",
+      "ok": true,
+      "detail": "status=400"
+    },
+    {
+      "id": "E2E-24:short password",
+      "criterion": "AUTH15-03",
+      "title": "short password -> 400 VALIDATION_ERROR, nothing written",
+      "ok": true,
+      "detail": "status=400"
+    },
+    {
+      "id": "E2E-24:password over 72 bytes",
+      "criterion": "AUTH15-03",
+      "title": "password over 72 bytes -> 400 VALIDATION_ERROR, nothing written",
+      "ok": true,
+      "detail": "status=400"
+    },
+    {
+      "id": "E2E-24:malformed email",
+      "criterion": "AUTH15-03",
+      "title": "malformed email -> 400 VALIDATION_ERROR, nothing written",
+      "ok": true,
+      "detail": "status=400"
+    },
+    {
+      "id": "E2E-24:blank name",
+      "criterion": "AUTH15-03",
+      "title": "blank name -> 400 VALIDATION_ERROR, nothing written",
+      "ok": true,
+      "detail": "status=400"
+    },
+    {
+      "id": "E2E-24:missing fields",
+      "criterion": "AUTH15-03",
+      "title": "missing fields -> 400 VALIDATION_ERROR, nothing written",
+      "ok": true,
+      "detail": "status=400"
+    },
+    {
+      "id": "E2E-25:missing key",
+      "criterion": "AUTH15-03",
+      "title": "missing key -> 400",
+      "ok": true,
+      "detail": "status=400"
+    },
+    {
+      "id": "E2E-25:short key",
+      "criterion": "AUTH15-03",
+      "title": "short key -> 400",
+      "ok": true,
+      "detail": "status=400"
+    },
+    {
+      "id": "E2E-25:129-char key",
+      "criterion": "AUTH15-03",
+      "title": "129-char key -> 400",
+      "ok": true,
+      "detail": "status=400"
+    },
+    {
+      "id": "E2E-26",
+      "criterion": "AUTH15-03",
+      "title": "eight simultaneous identical requests -> one 201, the rest 200, one user, one audit row",
+      "ok": true,
+      "detail": "200,200,200,200,200,200,200,201"
+    },
+    {
+      "id": "E2E-27",
+      "criterion": "AUTH15-04",
+      "title": "an audit insert that fails -> 500 in the common envelope without SQL or secrets",
+      "ok": true,
+      "detail": "status=500"
+    },
+    {
+      "id": "E2E-28",
+      "criterion": "AUTH15-04",
+      "title": "the failed registration left no user, no key and no audit row (rolled back together)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "E2E-29",
+      "criterion": "AUTH15-04",
+      "title": "after the fault is gone the same key retried -> 201 (the key was released by the rollback)",
+      "ok": true,
+      "detail": "status=201"
+    },
+    {
+      "id": "E2E-30",
+      "criterion": "AUTH15-04",
+      "title": "after the database restarted, rows, keys and audit rows are exactly as before",
+      "ok": true,
+      "detail": "6/6/6"
+    },
+    {
+      "id": "E2E-31",
+      "criterion": "AUTH15-04",
+      "title": "after the database restarted, the created account still authenticates",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "E2E-32",
+      "criterion": "AUTH15-04",
+      "title": "after the Auth process restarted, the same request and key still replays the original user",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "id": "E2E-33",
+      "criterion": "AUTH15-04",
+      "title": "no password, token or refresh token appears in Auth logs, Gateway logs, audit rows or key rows",
+      "ok": true,
+      "detail": "leaks=0"
+    },
+    {
+      "id": "E2E-34",
+      "criterion": "AUTH15-04",
+      "title": "no bcrypt hash appears in the logs or the audit table",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "scope": "Real Gateway -> built Auth -> real disposable PostgreSQL; existing registration implementation, expanded negative verification",
+  "authSource": "1a1cdebe8bf89d2283a0715e8c35cfcffdc2a1cf",
+  "authDB": "2b6252237bd5a4911ec8db13e99008a059d95e42",
+  "gatewaySource": "24a4ab157bb000e152e5e4567f16deb3ebadcf05",
+  "verificationScriptSHA256": "de34d5748a201807f44dfe23519dcd1ceab3167150751cb3c80e34cb8430ebe9",
+  "hostedCI": "NOT_CLAIMED; dedicated PR job is configured, actual hosted outcome must be inspected"
+}

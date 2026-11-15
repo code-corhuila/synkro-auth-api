@@ -145,3 +145,8 @@ See [Git conventions](https://github.com/code-corhuila/synkro-docs/blob/main/00-
 <a id="sessions-logout-and-refresh-token-reuse"></a>
 <a id="service-tokens"></a>
 <a id="token-validation"></a>
+
+
+## Login security extension
+
+See [the owning-service design and acceptance map](docs/login-account-protection.md). Auth can now reject login with the common `429 TOO_MANY_REQUESTS` envelope and `Retry-After`; Auth-generated responses use `Cache-Control: no-store`. This reviewed source change is separate from QA/main integration and deployment.

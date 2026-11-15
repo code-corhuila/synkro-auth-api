@@ -1,5 +1,5 @@
 {
-  "verifiedUTC": "2026-11-15T16:21:41.443711+00:00",
+  "verifiedUTC": "2026-11-15T16:33:08.825767+00:00",
   "baseline": "1a1cdebe8bf89d2283a0715e8c35cfcffdc2a1cf",
   "command": "mvn -B -q clean verify with disposable PostgreSQL 16",
   "java": "21.0.12",

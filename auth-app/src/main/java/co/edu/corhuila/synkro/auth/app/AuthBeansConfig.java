@@ -31,6 +31,9 @@ import co.edu.corhuila.synkro.auth.application.usecase.GetServiceTokenUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.GetUserUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.IssueServiceTokenUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.LoginUseCase;
+import co.edu.corhuila.synkro.auth.application.usecase.LoginConcurrencyBudget;
+import co.edu.corhuila.synkro.auth.application.usecase.AccountLoginProtection;
+import co.edu.corhuila.synkro.auth.adapter.out.memory.MemoryLoginAttempts;
 import co.edu.corhuila.synkro.auth.application.usecase.LogoutUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.RefreshUseCase;
 import co.edu.corhuila.synkro.auth.application.usecase.RegisterUserUseCase;
@@ -49,6 +52,7 @@ import java.time.Duration;
 import java.util.UUID;
 
 @Configuration
+@org.springframework.scheduling.annotation.EnableScheduling
 public class AuthBeansConfig {
 
     @Bean
@@ -181,10 +185,33 @@ public class AuthBeansConfig {
     }
 
     @Bean
+    public LoginConcurrencyBudget loginConcurrencyBudget(
+            @Value("${synkro.auth.login-max-concurrent:2}") int capacity,
+            @Value("${synkro.auth.login-overload-retry-seconds:1}") int retrySeconds) {
+        return new LoginConcurrencyBudget(capacity, retrySeconds);
+    }
+
+    @Bean
+    public MemoryLoginAttempts loginAttempts(@Value("${synkro.auth.login-max-accounts:10000}") int capacity) {
+        return new MemoryLoginAttempts(capacity);
+    }
+
+    @Bean
+    public AccountLoginProtection accountLoginProtection(MemoryLoginAttempts attempts, HashFunction hash, Clock clock,
+            @Value("${synkro.auth.login-failure-threshold:3}") int threshold,
+            @Value("${synkro.auth.login-window-seconds:60}") long window,
+            @Value("${synkro.auth.login-initial-cooldown-seconds:30}") long initial,
+            @Value("${synkro.auth.login-max-cooldown-seconds:120}") long cap,
+            @Value("${synkro.auth.login-retention-seconds:600}") long retention) {
+        return new AccountLoginProtection(attempts,hash,clock,threshold,window,initial,cap,retention);
+    }
+
+    @Bean
     public LoginUseCase loginUseCase(UserRepository users, PasswordHasher hasher, TokenIssuer issuer,
                                      CredentialIssuanceStore issuance, HashFunction hash, Clock clock,
-                                     @Value("${synkro.auth.refresh-token-ttl:P7D}") Duration refreshTokenTtl) {
-        return new LoginUseCase(users, hasher, issuer, issuance, hash, clock, refreshTokenTtl);
+                                     @Value("${synkro.auth.refresh-token-ttl:P7D}") Duration refreshTokenTtl,
+                                     AccountLoginProtection protection) {
+        return new LoginUseCase(users, hasher, issuer, issuance, hash, clock, refreshTokenTtl,protection);
     }
 
     @Bean

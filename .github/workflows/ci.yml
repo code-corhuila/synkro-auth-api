@@ -282,3 +282,45 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: ci_admin_pw
         run: bash tests/pact/ci-provider.sh
+
+  gateway-registration-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AUTH15_PRIVATE_DIR: ${{ github.workspace }}/../auth280-private
+      AUTH15_AUTH_DB_REPO: ${{ github.workspace }}/synkro-auth-db
+      AUTH15_GATEWAY_REPO: ${{ github.workspace }}/synkro-api-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: code-corhuila/synkro-auth-db
+          ref: 54c7fdce2b027d340d990123b9ae17af4f91ec79
+          path: synkro-auth-db
+      - uses: actions/checkout@v4
+        with:
+          repository: code-corhuila/synkro-api-gateway
+          ref: 5e5c3d5bdd67ae8c20eba2eaf2241d43a67adcde
+          path: synkro-api-gateway
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Real Gateway, Auth and PostgreSQL security regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$AUTH15_PRIVATE_DIR"
+          chmod 700 "$AUTH15_PRIVATE_DIR"
+          scripts/auth15/fixture.sh up
+          node scripts/auth15/e2e.mjs --evidence "$RUNNER_TEMP/auth280-results.json"
+      - name: Remove only the owned disposable fixture
+        if: always()
+        shell: bash
+        run: scripts/auth15/fixture.sh down
+      - name: Upload sanitized checks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-registration-security
+          path: ${{ runner.temp }}/auth280-results.json
+          if-no-files-found: warn

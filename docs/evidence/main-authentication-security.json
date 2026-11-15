@@ -1,0 +1,88 @@
+{
+  "candidateCommit": "778d9a975b798999b37e466bc56c0d1aa20b0dd2",
+  "sourceQa": "dacaa93897b8a3672146d68b5ddd8bb53b40c68a",
+  "authDifferences": [
+    ".github/workflows/ci.yml",
+    "scripts/auth15/fixture.sh"
+  ],
+  "dependencyDifferences": {
+    "synkro-auth-db": {
+      "qa": "a4810a0fa30f4f8eb73504e7249a9667c45384e8",
+      "main": "54c7fdce2b027d340d990123b9ae17af4f91ec79",
+      "onlyDocumentationDifferences": true,
+      "files": [
+        "README.md",
+        "docs/ci-rebuild-check.md",
+        "docs/migrations.md",
+        "docs/root-composition.md",
+        "docs/schema.md"
+      ]
+    },
+    "synkro-api-gateway": {
+      "qa": "81c8125dda619dadda2163a0f0e2e50b84b10583",
+      "main": "5e5c3d5bdd67ae8c20eba2eaf2241d43a67adcde",
+      "onlyDocumentationDifferences": true,
+      "files": [
+        "README.md",
+        "docs/local-development.md",
+        "docs/testing.md"
+      ]
+    }
+  },
+  "verifiedUTC": "2026-11-15T18:14:53.019648+00:00",
+  "targetedTests": {
+    "command": "mvn -B -q -pl auth-core,auth-adapters,auth-app -am -Dtest=AccountLoginProtectionTest,MemoryLoginAttemptsTest,LoginConcurrencyBudgetTest,AccountLoginHttpTest,LoginCapacityHttpTest -Dsurefire.failIfNoSpecifiedTests=false test",
+    "exit": 0,
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suites": [
+      {
+        "name": "co.edu.corhuila.synkro.auth.adapter.out.MemoryLoginAttemptsTest",
+        "tests": "5",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "co.edu.corhuila.synkro.auth.app.AccountLoginHttpTest",
+        "tests": "1",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "co.edu.corhuila.synkro.auth.app.LoginCapacityHttpTest",
+        "tests": "2",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "co.edu.corhuila.synkro.auth.application.usecase.AccountLoginProtectionTest",
+        "tests": "7",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "co.edu.corhuila.synkro.auth.application.usecase.LoginConcurrencyBudgetTest",
+        "tests": "2",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      }
+    ]
+  },
+  "inheritedQaValidation": {
+    "tests": 758,
+    "globalLineCoveragePercent": 96.02,
+    "gatewayChecksPassed": 52,
+    "pactInteractionsPassed": 5,
+    "rerunForMain": false,
+    "evidence": "qa-authentication-security.json"
+  },
+  "hostedCI": "Pending main PR; local validation is distinct from hosted checks",
+  "deployment": "Not performed; promotion PR only"
+}

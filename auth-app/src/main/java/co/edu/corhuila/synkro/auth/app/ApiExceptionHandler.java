@@ -3,6 +3,7 @@ package co.edu.corhuila.synkro.auth.app;
 import co.edu.corhuila.synkro.auth.application.usecase.BusinessRuleViolationException;
 import co.edu.corhuila.synkro.auth.application.usecase.ForbiddenException;
 import co.edu.corhuila.synkro.auth.application.usecase.InvalidCredentialsException;
+import co.edu.corhuila.synkro.auth.application.usecase.LoginThrottledException;
 import co.edu.corhuila.synkro.auth.application.usecase.NotFoundException;
 import co.edu.corhuila.synkro.auth.application.usecase.UnauthenticatedException;
 import co.edu.corhuila.synkro.auth.application.usecase.ValidationException;
@@ -51,6 +52,14 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(UnauthenticatedException.class)
     public ResponseEntity<Map<String, Object>> unauthenticated(HttpServletRequest request) {
         return envelope(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", SecurityErrorResponses.UNAUTHORIZED_MESSAGE, null, request);
+    }
+
+    @ExceptionHandler(LoginThrottledException.class)
+    public ResponseEntity<Map<String, Object>> loginThrottled(LoginThrottledException e, HttpServletRequest request) {
+        return ResponseEntity.status(429).contentType(ApiError.CONTENT_TYPE)
+            .header(HttpHeaders.RETRY_AFTER, Long.toString(e.retryAfterSeconds()))
+            .header(HttpHeaders.CACHE_CONTROL, "no-store")
+            .body(ApiError.body("TOO_MANY_REQUESTS", e.getMessage(), null, request));
     }
 
     @ExceptionHandler(ForbiddenException.class)
